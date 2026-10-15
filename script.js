@@ -130,7 +130,7 @@ function renderRadar() {
     const safeIcon = /^https:\/\//i.test(icon) ? icon : '';
     const fallback = '☣';
     const img = safeIcon ? '<img class="token-icon" loading="lazy" src="' + safeIcon.replace(/"/g, '&quot;') + '" alt="" onerror="this.style.display=\'none\'">' : '<span class="token-icon token-fallback">' + fallback + '</span>';
-    return '<tr><td><div class="token-cell">' + img + '<div><span class="token-name" title="' + name.replace(/"/g,'&quot;') + '">' + name.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span><span class="token-symbol">' + symbol.replace(/</g,'&lt;').replace(/>/g,'&gt;') + (Number(t.boosts?.active) > 0 ? ' · ⚡ ' + Number(t.boosts.active) : '') + '</span></div></div></td><td class="token-price">' + price(t.priceUsd) + '</td><td>' + pct(t.priceChange?.h1) + '</td><td>' + money(t.volume?.h24) + '</td><td>' + money(t.liquidity?.usd) + '</td><td><a class="pair-link" href="' + (t.url || 'https://dexscreener.com/solana') + '" target="_blank" rel="noopener noreferrer">VIEW ↗</a></td></tr>';
+    return '<tr><td><div class="token-cell">' + img + '<div><span class="token-name" title="' + name.replace(/"/g,'&quot;') + '">' + name.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span><span class="token-symbol">' + symbol.replace(/</g,'&lt;').replace(/>/g,'&gt;') + (t.boosts?.isBoosted ? ' · ⚡ BOOSTED' : '') + '</span></div></div></td><td class="token-price">' + price(t.priceUsd) + '</td><td>' + pct(t.priceChange?.h1) + '</td><td>' + money(t.volume?.h24) + '</td><td>' + money(t.liquidity?.usd) + '</td><td><a class="pair-link" href="' + (t.url || 'https://dexscreener.com/solana') + '" target="_blank" rel="noopener noreferrer">VIEW ↗</a></td></tr>';
   }).join('');
 }
 async function loadRadar(force = false) {
@@ -158,8 +158,8 @@ async function loadRadar(force = false) {
       const currentRank = current ? Number(current.liquidity?.usd || 0) + Number(current.volume?.h24 || 0) * 0.1 : -1;
       if (!current || rank > currentRank) best.set(key, p);
     });
-    const boostMap = new Map((Array.isArray(boosted) ? boosted : []).map(t => [t.tokenAddress, Number(t.totalAmount || t.amount || 0)]));
-    radarTokens = [...best.values()].map(p => ({...p, boosts:{...(p.boosts || {}), active:boostMap.get(p.baseToken.address) || p.boosts?.active || 0}}));
+    const boostedAddresses = new Set((Array.isArray(boosted) ? boosted : []).map(t => t.tokenAddress));
+    radarTokens = [...best.values()].map(p => ({...p, boosts:{...(p.boosts || {}), active:Number(p.boosts?.active || 0), isBoosted:boostedAddresses.has(p.baseToken.address)}}));
     if (!radarTokens.length) throw new Error('No detailed Solana pairs returned');
     lastRadarSuccess = Date.now();
     renderRadar();
