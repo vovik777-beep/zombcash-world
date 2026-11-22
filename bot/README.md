@@ -62,11 +62,15 @@ Required dependencies identified from the current private `main` source:
 - Cross-post adapters: `publish_line_meme`, `publish_bluesky_post`, `_bluesky_text_fits`.
 - Rotation state/scheduling: rotation-state helpers, Telegram Application JobQueue, Telegram Bot API, shared `/data` state directory and POSIX `fcntl` lock.
 
+### Extracted groundwork: image runtime and resource safety
+
+`bot/image_runtime.py` now isolates the container-memory guard, process RSS diagnostics, memory-release helper, and Pillow normalization path. It preserves the source thresholds (maximum 65% cgroup memory usage and at least 600 MiB free headroom), refuses generation when cgroup metrics are unavailable, rejects source images above 2.5 MP, normalizes to at most 1024×1024 JPEG, and caps normalized output at 2 MB. The CI compiles the complete `bot/` tree and runs focused tests for the extracted modules.
+
 ### Extracted groundwork: durable pending-image state
 
 `bot/auto_post_state.py` now isolates pending-image persistence from the monolithic bot. It retains the production safety rule: a record marked `sending` is ambiguous and is treated as already sent, so an automatic retry cannot resend it. Image bytes and metadata are written atomically. Unit tests cover save/reload, ambiguous delivery, sent-message IDs, cleanup, and supported styles.
 
-**Important:** this module is currently isolated and tested; the private production bot has not been rewired to use it, and this public workspace does not start an hourly scheduler. The remaining image-generation, AI-caption, Telegram, retry, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
+**Important:** both extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. The Pollinations image-generation adapter, scene-history storage, AI-caption, Telegram, retry, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
 
 The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,800 seconds. News polling remains 600 seconds. These schedules are independent.
 
