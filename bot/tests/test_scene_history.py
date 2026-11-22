@@ -31,9 +31,10 @@ class SceneHistoryTests(unittest.TestCase):
     def test_persists_utf8_and_trims_history_to_limit(self):
         with tempfile.TemporaryDirectory() as folder:
             path = str(Path(folder) / "history.json")
-            for scene in ["один", "два", "три"]:
+            scenes = ["один", "два", "три"]
+            for _ in range(3):
                 choose_fresh_scene(
-                    "PHOTO_PINUP", [scene], history_file=path,
+                    "PHOTO_PINUP", scenes, history_file=path,
                     recent_limit=2, chooser=lambda options: options[0],
                 )
             state = json.loads(Path(path).read_text(encoding="utf-8"))
