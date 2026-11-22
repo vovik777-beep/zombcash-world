@@ -66,11 +66,15 @@ Required dependencies identified from the current private `main` source:
 
 `bot/image_runtime.py` now isolates the container-memory guard, process RSS diagnostics, memory-release helper, and Pillow normalization path. It preserves the source thresholds (maximum 65% cgroup memory usage and at least 600 MiB free headroom), refuses generation when cgroup metrics are unavailable, rejects source images above 2.5 MP, normalizes to at most 1024×1024 JPEG, and caps normalized output at 2 MB. The CI compiles the complete `bot/` tree and runs focused tests for the extracted modules.
 
+### Extracted groundwork: Pollinations image API adapter
+
+`bot/pollinations_image_client.py` separates the authenticated Pollinations image request from prompt composition. It preserves the production request model, 1024×1024 output, 90-second timeout, bounded 10 MB JSON response, 8 MB encoded-image and 6 MB source-image limits, one retry with a varied seed and simpler composition, and the existing Pillow normalizer. Its tests use a mocked HTTP response and do not contact Pollinations or spend API quota.
+
 ### Extracted groundwork: durable pending-image state
 
 `bot/auto_post_state.py` now isolates pending-image persistence from the monolithic bot. It retains the production safety rule: a record marked `sending` is ambiguous and is treated as already sent, so an automatic retry cannot resend it. Image bytes and metadata are written atomically. Unit tests cover save/reload, ambiguous delivery, sent-message IDs, cleanup, and supported styles.
 
-**Important:** both extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. The Pollinations image-generation adapter, scene-history storage, AI-caption, Telegram, retry, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
+**Important:** these extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. Prompt/scene composition and scene-history storage, AI-caption, Telegram, retry, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
 
 The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,800 seconds. News polling remains 600 seconds. These schedules are independent.
 
