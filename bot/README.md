@@ -74,11 +74,15 @@ Required dependencies identified from the current private `main` source:
 
 `bot/scene_history.py` now isolates the style-specific recent-scene selector. It retains the existing eight-scene avoidance window, falls back to the full scene list when all entries are recent, keeps histories separate by style, and writes UTF-8 JSON atomically with `fsync` + `os.replace`. Tests cover style isolation, history trimming, malformed files, fallback cycling, and atomic-write cleanup. The production bot has not yet been rewired to this helper; its `/data/auto_post_history.json` remains untouched.
 
+### Extracted groundwork: AI text provider fallback
+
+`bot/ai_text_client.py` isolates the existing Gemini model fallback order, two-attempt behavior for transient failures, quota detection, parsed retry-after cooldown (minimum five minutes), and Pollinations text fallback. Prompt construction and project-memory loading remain outside this module and are passed in by the caller. Provider calls are injectable; tests make no external API requests.
+
 ### Extracted groundwork: durable pending-image state
 
 `bot/auto_post_state.py` now isolates pending-image persistence from the monolithic bot. It retains the production safety rule: a record marked `sending` is ambiguous and is treated as already sent, so an automatic retry cannot resend it. Image bytes and metadata are written atomically. Unit tests cover save/reload, ambiguous delivery, sent-message IDs, cleanup, and supported styles.
 
-**Important:** these extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. Prompt/scene composition, AI-caption, Telegram, retry, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
+**Important:** these extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. Prompt/scene composition, Prompt composition/project-memory integration, Telegram delivery, retry orchestration, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
 
 The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,800 seconds. News polling remains 600 seconds. These schedules are independent.
 
