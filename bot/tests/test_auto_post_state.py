@@ -2,7 +2,7 @@ import io
 import tempfile
 import unittest
 
-from auto_post_state import AutoPostImageStore
+from bot.auto_post_state import AutoPostImageStore
 
 
 class AutoPostImageStoreTests(unittest.TestCase):
