@@ -37,13 +37,11 @@ These remain in the private repository and continue to be maintained there.
 - Keep the existing private bot running. No production cutover, deployment, or duplicate live posting during the migration.
 - Test the isolated public implementation before any cutover. Switch production only after explicit approval.
 
-## Planned layout
+## Current layout
 
-- `src/publisher/` — hourly editorial rotation, three-hour website spotlight, and news publication
-- `tests/` — focused regression tests for cadence, rotation, website spotlight, and news publishing
-- `docs/` — public deployment and configuration instructions
-- `requirements.txt` — only dependencies required by this publishing slice
-- `.github/workflows/` — isolated CI for the publishing slice
+- `bot/` — staged publishing worker source and focused tests
+- `bot/requirements.txt` — minimal dependencies for the current publishing workers
+- `.github/workflows/zombcash-publisher-ci.yml` — isolated publishing CI
 
 ## Current verified source locations (private repository main)
 
@@ -53,23 +51,25 @@ These remain in the private repository and continue to be maintained there.
 - `news_worker.py` — independent news generation/publication and website API mirroring.
 - `start.sh` — currently supervises multiple services; do not copy wholesale because it would start out-of-scope services.
 
-## Important
-
-The public workspace must be populated from reviewed source files, not by importing the private repository's history. The existing private repository remains the operational fallback until the user explicitly approves a tested cutover.
-
-
 ## Hourly editorial rotation: extraction boundary review
 
-The hourly publisher is implemented in `bot.py` as a 224-line flow beginning at `_auto_post_job_once`, with a lock wrapper in `auto_post_job`. It is not safe to copy this block alone: it calls shared helpers that currently live elsewhere in the monolithic bot.
+The hourly publisher is implemented in `bot.py` as a flow beginning at `_auto_post_job_once`, with a lock wrapper in `auto_post_job`. It is not safe to copy this block alone: it calls shared helpers that currently live elsewhere in the monolithic bot.
 
 Required dependencies identified from the current private `main` source:
 
-- Image lifecycle: `generate_zombiecash_image`, `load_pending_auto_post_image`, `save_pending_auto_post_image`, `mark_pending_auto_post_image_sending`, `mark_pending_auto_post_image_sent`, `clear_pending_auto_post_image`, `release_image_memory`.
+- Image lifecycle: `generate_zombiecash_image`, pending-image persistence helpers, and `release_image_memory`.
 - Caption/context: `ask_gemini`, `load_project_memory`.
 - Cross-post adapters: `publish_line_meme`, `publish_bluesky_post`, `_bluesky_text_fits`.
-- Rotation state/scheduling: `load_next_rotation_index`, `save_rotation_success`, `schedule_next_auto_post`, `schedule_auto_post_retry`.
-- Runtime integration: Telegram Application JobQueue, Telegram Bot API, shared `/data` state directory and POSIX `fcntl` lock.
+- Rotation state/scheduling: rotation-state helpers, Telegram Application JobQueue, Telegram Bot API, shared `/data` state directory and POSIX `fcntl` lock.
 
-Migration decision: keep the existing hourly publisher running in the private bot until these dependencies have been separated behind explicit interfaces and tested in isolation. Do not start an additional hourly scheduler from this public workspace during the transition; that would duplicate channel posts.
+### Extracted groundwork: durable pending-image state
+
+`bot/auto_post_state.py` now isolates pending-image persistence from the monolithic bot. It retains the production safety rule: a record marked `sending` is ambiguous and is treated as already sent, so an automatic retry cannot resend it. Image bytes and metadata are written atomically. Unit tests cover save/reload, ambiguous delivery, sent-message IDs, cleanup, and supported styles.
+
+**Important:** this module is currently isolated and tested; the private production bot has not been rewired to use it, and this public workspace does not start an hourly scheduler. The remaining image-generation, AI-caption, Telegram, retry, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
 
 The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,800 seconds. News polling remains 600 seconds. These schedules are independent.
+
+## Important
+
+The public workspace must be populated from reviewed source files, not by importing the private repository's history. The existing private repository remains the operational fallback until the user explicitly approves a tested cutover.
