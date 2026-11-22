@@ -45,7 +45,7 @@ class AITextClientTests(unittest.TestCase):
             monotonic=lambda: now[0], sleeper=lambda _: asyncio.sleep(0),
         ))
         self.assertEqual(result, "fallback caption")
-        self.assertEqual(cooldown, 1300.0)
+        self.assertEqual(cooldown, 1900.0)
 
     def test_active_cooldown_skips_gemini(self):
         calls = []
