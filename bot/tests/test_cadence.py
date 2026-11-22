@@ -39,8 +39,8 @@ class PublishingCadenceTests(unittest.TestCase):
 
     def test_news_worker_has_independent_ten_minute_polling(self):
         source = (ROOT / "news_worker.py").read_text(encoding="utf-8")
-        self.assertIn("NEWS_POLL_INTERVAL_SECONDS", source)
-        self.assertIn("600", source)
+        self.assertIn("Poll every 10 minutes", source)
+        self.assertIn("await asyncio.sleep(600)", source)
 
 
 if __name__ == "__main__":
