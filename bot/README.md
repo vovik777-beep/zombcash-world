@@ -2,17 +2,19 @@
 
 This is a staged, selective migration. The existing private bot remains the production source of truth until a separate cutover is explicitly approved.
 
-## Migration scope: only the stable publishing functions
+## First migration slice: existing publishing functions only
 
-The public workspace is intended to contain only:
+Preserve the current production behavior without changing cadence:
 
-1. **Scheduled Telegram content rotation** — preserve the currently used publishing flow and its rotation state handling. The private `main` branch currently defines a 60-minute interval in `auto_post_schedule.py`. Before cutover, confirm the desired production cadence against the latest approved schedule; do not silently change it.
-2. **Website promotion** — preserve the existing website links and attribution in the established Telegram post captions and onboarding/welcome messages. No new mass-promotion campaign is introduced unless separately approved.
-3. **News publication** — isolate the existing `news_worker.py` flow that prepares news posts for `@ZOMBCASH` and mirrors successful publications to the ZombieCash website API.
+1. **Editorial Telegram rotation remains hourly (every 60 minutes).** The existing four-slot content rotation is separate from website promotion. Do not change it to a three-hour interval.
+2. **Website promotion runs every three hours (10,800 seconds).** This is a separate scheduled website spotlight that cycles through the site's pages, includes a page button and a link to ZombieCash HQ, and attempts to attach a screenshot. It has its own persisted state and retry behavior.
+3. **News publication** remains a separate worker. It publishes sourced news to `@ZOMBCASH` and mirrors successful publications to the ZombieCash website API when the configured publishing token is present.
+
+The three-hour cadence applies ONLY to website promotion. It must never be applied to the hourly editorial rotation or news polling/publication.
 
 ## Explicitly out of scope for this first migration
 
-Do not migrate or refactor the following unless needed as a direct dependency of the three publishing functions and separately reviewed:
+Do not migrate or refactor the following unless required as a direct dependency of the three in-scope functions and separately reviewed:
 
 - Meme Radar and Boost Monitor
 - Zombie Lab games, player accounts, leaderboards, and game state
@@ -27,7 +29,7 @@ These remain in the private repository and continue to be maintained there.
 ## Migration rules
 
 - Preserve behavior first; do not redesign stable features during the move.
-- Extract only the smallest dependency set required by the three in-scope functions.
+- Extract only the smallest dependency set required by the three publishing functions.
 - Do not copy the private repository's Git history.
 - Never publish API keys, Telegram tokens, wallet/private keys, user data, runtime databases, local state, session cookies, production logs, or private diagnostic reports.
 - Use environment variables / hosting secret storage. Document variable names only, never values.
@@ -37,17 +39,18 @@ These remain in the private repository and continue to be maintained there.
 
 ## Planned layout
 
-- `src/publisher/` — scheduled content, website links, and news publishing
-- `tests/` — focused regression tests for the publishing flows
+- `src/publisher/` — hourly editorial rotation, three-hour website spotlight, and news publication
+- `tests/` — focused regression tests for cadence, rotation, website spotlight, and news publishing
 - `docs/` — public deployment and configuration instructions
 - `requirements.txt` — only dependencies required by this publishing slice
 - `.github/workflows/` — isolated CI for the publishing slice
 
-## Current verified source locations
+## Current verified source locations (private repository main)
 
-- `auto_post_schedule.py` — shared post interval and content rotation.
-- `bot.py` — scheduled Telegram publishing and website links in captions/onboarding.
-- `news_worker.py` — news generation/publication and website API mirroring.
+- `auto_post_schedule.py` — hourly editorial rotation configuration (3,600 seconds).
+- `bot.py` — hourly Telegram publishing and website links in captions/onboarding.
+- `website_showcase.py` — separate website spotlight schedule (default 10,800 seconds / three hours).
+- `news_worker.py` — independent news generation/publication and website API mirroring.
 - `start.sh` — currently supervises multiple services; do not copy wholesale because it would start out-of-scope services.
 
 ## Important
