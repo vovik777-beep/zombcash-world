@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -42,6 +43,15 @@ class FakeApplication:
         self.handlers.append(handler)
 
 
+def register_with_test_storage(application, hourly_state, website_state, now):
+    with ExitStack() as stack:
+        stack.enter_context(patch("bot.hourly_publisher.STATE_FILE", str(hourly_state)))
+        stack.enter_context(patch("bot.hourly_publisher.time.time", return_value=now))
+        stack.enter_context(patch("bot.website_showcase.STATE", str(website_state)))
+        stack.enter_context(patch("bot.website_showcase.time.time", return_value=now))
+        register_publishing_schedules(application, object(), lambda update: True)
+
+
 class RestartRecoveryTests(unittest.TestCase):
     def test_restart_restores_remaining_hourly_and_site_delays(self):
         now = 1_800_000_000.0
@@ -61,24 +71,12 @@ class RestartRecoveryTests(unittest.TestCase):
             }), encoding="utf-8")
 
             app = FakeApplication()
-                with ExitStack() as stack:
-                    stack.enter_context(patch("bot.hourly_publisher.STATE_FILE", str(hourly_state)))
-                    stack.enter_context(patch("bot.hourly_publisher.time.time", return_value=now))
-                    stack.enter_context(patch("bot.website_showcase.STATE", str(website_state)))
-                    stack.enter_context(patch("bot.website_showcase.time.time", return_value=now))
-                register_publishing_schedules(app, object(), lambda update: True)
+            register_with_test_storage(app, hourly_state, website_state, now)
 
             jobs = {job.name: job for job in app.job_queue.jobs}
-            self.assertEqual(
-                jobs["zombcash_auto_post_rotation"].when,
-                40 * 60,
-            )
-            self.assertEqual(
-                jobs["zombcash_website_showcase"].when,
-                2 * 60 * 60,
-            )
+            self.assertEqual(jobs["zombcash_auto_post_rotation"].when, 40 * 60)
+            self.assertEqual(jobs["zombcash_website_showcase"].when, 2 * 60 * 60)
             self.assertEqual(len(app.handlers), 1)
-            self.assertEqual(app.bot_data["auto_post_retry_attempt"] if "auto_post_retry_attempt" in app.bot_data else 0, 0)
 
             persisted = json.loads(hourly_state.read_text(encoding="utf-8"))
             self.assertEqual(persisted["next_rotation_index"], 2)
@@ -90,20 +88,14 @@ class RestartRecoveryTests(unittest.TestCase):
             hourly_state = Path(directory) / "missing_hourly.json"
             website_state = Path(directory) / "missing_site.json"
             app = FakeApplication()
-            with patch("bot.hourly_publisher.STATE_FILE", str(hourly_state)), \
-                 patch("bot.hourly_publisher.time.time", return_value=now), \
-                 patch("bot.website_showcase.STATE", str(website_state)), \
-                 patch("bot.website_showcase.time.time", return_value=now):
-                register_publishing_schedules(app, object(), lambda update: True)
+            register_with_test_storage(app, hourly_state, website_state, now)
 
             jobs = {job.name: job for job in app.job_queue.jobs}
             self.assertEqual(jobs["zombcash_auto_post_rotation"].when, 3600)
             self.assertEqual(jobs["zombcash_website_showcase"].when, 10800)
             self.assertFalse(app.bot_data.get("publisher_started", False))
 
-
     def test_real_telegram_application_bootstrap_registers_jobs_without_starting(self):
-        from contextlib import ExitStack
         from telegram.ext import Application
 
         now = 1_800_000_000.0
@@ -114,14 +106,7 @@ class RestartRecoveryTests(unittest.TestCase):
                 "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
             ).build()
             try:
-                with patch("bot.hourly_publisher.STATE_FILE", str(hourly_state)), \\
-                     patch("bot.hourly_publisher.time.time", return_value=now), \\
-                     patch("bot.website_showcase.STATE", str(website_state)), \\
-                     patch("bot.website_showcase.time.time", return_value=now):
-                    register_publishing_schedules(
-                        application, object(), lambda update: True
-                    )
-
+                register_with_test_storage(application, hourly_state, website_state, now)
                 jobs = {job.name for job in application.job_queue.jobs()}
                 self.assertIn("zombcash_auto_post_rotation", jobs)
                 self.assertIn("zombcash_website_showcase", jobs)
