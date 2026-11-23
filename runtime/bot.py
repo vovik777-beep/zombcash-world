@@ -2094,12 +2094,12 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "FORM=TRANSITION | DIARY 08 — the same heroine sits alone in a shelter, half her hair turning silver-white, a subtle glow in her eyes and first delicate scars; beautiful, intelligent and troubled",
             "FORM=TRANSITION | DIARY 09 — during a laboratory escape, the same woman has dark roots and silver strands, one natural eye and one softly glowing amber-red eye; camouflage jacket torn, biohazard pendant visible",
             "FORM=TRANSITION | DIARY 10 — close cinematic portrait at the moment of awakening, silver spreading through dark hair, both eyes beginning to glow amber-red, biohazard goggles in her hands",
-            "FORM=UNDEAD | DIARY 11 — silver-haired heroine with luminous amber-red eyes and subtle facial scars examines a classified infection card in a cold laboratory corridor; black goggles with neon-green biohazard lenses rest on her head",
-            "FORM=UNDEAD | DIARY 12 — silver-haired heroine in a fitted black $ZOMBCASH tank top, tactical shoulder straps, fingerless gloves and biohazard pendant records a mysterious rooftop broadcast",
-            "FORM=UNDEAD | DIARY 13 — same heroine in a distressed black leather field jacket and fitted dark top searches a containment chamber, glowing eyes reflected in the glass",
-            "FORM=UNDEAD | DIARY 14 — silver hair loose and wild, goggles above her forehead, black $ZOMBCASH top and torn tactical layers; she moves through a flooded tunnel with a flashlight",
-            "FORM=UNDEAD | DIARY 15 — silver-haired heroine with amber-red glowing eyes, biohazard goggles and pendant studies a vial of toxic green fluid in a hidden research room",
-            "FORM=UNDEAD | DIARY 16 — silver-haired heroine in a fitted black $ZOMBCASH top and weathered black jacket stands at a rooftop signal mast, enigmatic against the dead city",
+            "FORM=UNDEAD | DIARY 11 — silver-haired heroine with vivid glowing magenta eyes and a sharp healed diagonal scar across one cheek examines a classified infection card; daring black asymmetric cropped tactical top, open distressed leather jacket and biohazard goggles on her head",
+            "FORM=UNDEAD | DIARY 12 — silver-haired heroine with luminous magenta eyes and visible fine scars across cheekbone and collarbone records a rooftop broadcast; fitted low-cut black $ZOMBCASH crop top, open leather jacket slipping off one shoulder, tactical straps and biohazard pendant",
+            "FORM=UNDEAD | DIARY 13 — same heroine, intense magenta glowing eyes and two elegant healed facial scars, searches a containment chamber wearing a daring fitted black leather bustier-style tactical top beneath an open cropped jacket, tasteful exposed shoulders and midriff",
+            "FORM=UNDEAD | DIARY 14 — silver hair loose and wild, vivid magenta eyes, a branching scar near one eye, goggles above her forehead; she moves through a flooded tunnel in a torn fitted $ZOMBCASH top, open distressed jacket and asymmetric tactical straps",
+            "FORM=UNDEAD | DIARY 15 — silver-haired heroine with intense luminous magenta eyes, clearly visible fine scars across one cheek and shoulder, biohazard goggles and pendant studies a vial in a hidden research room; fitted black cutout tactical top under an open leather jacket",
+            "FORM=UNDEAD | DIARY 16 — silver-haired heroine with hypnotic glowing magenta eyes and distinctive diagonal cheek scar stands at a rooftop signal mast; bold fitted black $ZOMBCASH crop top, open distressed leather jacket, exposed shoulders and waist, elegant tactical harness details",
         ]
         visual_direction = (
             "ZOMBCASH HEROINE CHARACTER BIBLE: one iconic adult woman, age 25+, the same person and same facial identity in every image. "
@@ -2109,18 +2109,18 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "FORM LOCK: obey the selected scene's FORM= tag exactly. HUMAN: dark brown or near-black hair, natural human eyes, no glowing pupils, "
             "no zombie pallor and no silver hair; attractive credible olive/grey camouflage, fitted tactical field clothing, practical vest or backpack "
             "straps, cargo trousers, gloves and boots. Keep her silhouette feminine and athletic; avoid bulky shapeless armor. "
-            "TRANSITION: same face and body, with only the partial infection changes named in that scene; do not complete the transformation early. "
-            "UNDEAD: tousled silver/white hair, luminous amber-red eyes matching the supplied generated reference, subtle dark under-eye shading, "
-            "delicate freckles/scars and a hypnotic, slightly dangerous expression. Signature markers: black industrial goggles on her head with "
+            "TRANSITION: same face and body, with only the partial infection changes named in that scene; do not complete the transformation early. Early eye change is unmistakable but restrained: one iris develops a magenta inner glow with amber-red flecks; first fine healed scar lines appear near the temple or cheek. "
+            "UNDEAD: tousled silver/white hair, intensely luminous neon-magenta irises with a hot amber-red core and sharply defined pupils, dark smoky under-eye shading, "
+            "distinctive visible scars: one elegant diagonal healed scar crossing a cheekbone, a few fine branching scar marks near the temple and subtle infection tracery along the collarbone; keep scars readable, attractive and non-gory. Hypnotic, confident, slightly dangerous expression. Signature markers: black industrial goggles on her head with "
             "neon-green biohazard symbols on the lenses, biohazard pendant/choker, black fingerless gloves and tactical shoulder straps. "
-            "Her undead outfit may be a fitted black tank top with the exact '$ZOMBCASH' ticker, a distressed black leather jacket or stylish torn "
+            "UNDEAD WARDROBE MUST BE BOLDER than the human tactical form: fitted low-cut or cropped black $ZOMBCASH top, asymmetric torn tactical crop top, structured leather bustier-style outer layer, open distressed leather jacket, bare shoulders, tasteful neckline and occasional exposed midriff; pair with tactical harness straps, gloves, belt, shorts or fitted utility trousers. Use confident feminine silhouettes and fashion-forward post-apocalyptic styling, not bulky armor or a plain fully-covered tank top. Keep the look daring, alluring and non-explicit, with opaque coverage of intimate areas. A distressed black leather jacket or stylish torn "
             "tactical layers. Daring, feminine and alluring, but non-explicit and suitable for a survival story. Do not force undead markers into "
             "HUMAN scenes unless the scene explicitly calls for them. The two forms are the same woman, not sisters or different actresses. "
             "Her attractiveness, face identity, proportions and charisma never change. Personality: intelligence, resourcefulness, dark humor, "
             "vulnerability and controlled danger. She may be quietly sensual and self-assured without posing like a fashion catalogue model. "
             "Create cinematic story moments with meaningful action, expressive eyes, graceful natural posture and a strong environmental narrative. "
             "Photorealistic live-action prestige survival-thriller cinematography, lifelike skin, believable fabric, metal, weather and practical lighting. "
-            "Palette: charcoal, black, graphite, cold steel, muted olive camouflage, toxic neon green accents and restrained amber-red eye glow only in "
+            "Palette: charcoal, black, graphite, cold steel, muted olive camouflage, toxic neon green accents and vivid magenta eye glow with amber-red cores only in "
             "UNDEAD scenes; minimal unrelated red. Preserve the scene's exact form and outfit. No random hair/eye changes, outfit switches or face drift; "
             "no anime/cartoon look, plastic CGI, nudity, exposed intimate areas, distorted anatomy, text errors, watermarks or unrelated logos. "
             "If '$ZOMBCASH' cannot be rendered accurately, keep the top plain rather than inventing misspelled text."
@@ -2266,13 +2266,15 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
     )
     if style_mode == "HEROINE":
         prompt += (
-            " HEROINE DIARY MODE OVERRIDE: this is a grounded survival-story frame, not a glamour, lingerie or pin-up image. "
-            "Ignore unrelated fashion-editorial wardrobe suggestions above. Preserve the Library heroine's silver-white messy hair, "
-            "glowing magenta eyes, pale scarred face, black goggles with neon biohazard symbols, black leather tactical jacket with "
-            "biohazard shoulder patch, biohazard pendant and black $ZOMBCASH tank top. The scene must read as one specific diary "
-            "episode with a clear action or discovery. Use charcoal-grey ruined-city cinematography, toxic neon-green fog/moonlight, "
-            "subtle magenta highlights and minimal red; keep realistic practical survival gear and fully covered clothing. "
-            "No lettering unless the exact '$ZOMBCASH' ticker can be rendered cleanly; otherwise leave the shirt unlettered."
+            " HEROINE DIARY MODE OVERRIDE: cinematic survival-story frame with a bold, glamorous undead transformation aesthetic when FORM=UNDEAD. "
+            "Ignore any generic fully-covered wardrobe restriction. Obey the selected FORM exactly: HUMAN remains dark-haired in practical camouflage; "
+            "TRANSITION shows only the specified partial changes; UNDEAD has silver-white messy hair, intensely glowing neon-magenta eyes with amber-red cores, "
+            "clearly readable elegant facial scars, black industrial goggles with neon-green biohazard symbols, biohazard pendant and a daring fitted black "
+            "$ZOMBCASH crop top or structured distressed leather top with an open jacket, exposed shoulders and tasteful midriff. The undead form should "
+            "look strikingly feminine, confident, mysterious and dangerously attractive, not bulky or fully covered. Keep intimate areas opaque and covered. "
+            "The scene must read as one specific diary episode with a clear action or discovery. Use charcoal-grey ruined-city cinematography, toxic neon-green "
+            "fog/moonlight, subtle magenta highlights and minimal red. No gore or grotesque facial deformation. No lettering unless the exact '$ZOMBCASH' "
+            "ticker can be rendered cleanly; otherwise use a simple biohazard emblem without misspelled text."
         )
     seed = random.randint(1, 2_000_000_000)
     payload = {
