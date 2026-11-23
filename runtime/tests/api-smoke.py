@@ -148,24 +148,20 @@ assert rss_image_url(
 ) == ""
 assert meta_content('<meta content="https://cdn.example.com/a.jpg" property="og:image">', "content") == "https://cdn.example.com/a.jpg"
 
-# News commentary must reject fragments and use stable, varied fallbacks.
-news_helpers = [functions[name] for name in ("_valid_news_commentary", "fallback_news_commentary")]
-news_namespace = {"hashlib": hashlib, "re": re}
-exec(compile(ast.Module(body=news_helpers, type_ignores=[]), "api_server.py", "exec"), news_namespace)
-valid_commentary = news_namespace["_valid_news_commentary"]
-fallback_commentary = news_namespace["fallback_news_commentary"]
-assert valid_commentary("Turns") is False
-assert valid_commentary("The future has shipped another update, and the release notes are mostly caveats.") is True
-sample_titles = [
-    "AI startup announces a new data center platform",
-    "Technology company expands its data center network",
-    "Robot software receives a major update",
-    "Cyber startup unveils new algorithm",
-]
-fallbacks = [fallback_commentary(title) for title in sample_titles]
-assert all(valid_commentary(value) for value in fallbacks)
-assert len(set(fallbacks)) > 1, "Different technology headlines should not all receive the same fallback"
-assert fallback_commentary(sample_titles[0]) == fallback_commentary(sample_titles[0]), "Fallbacks must be deterministic"
+# News must use the publisher's original article image only; no generated illustrations.
+NEWS_PATH = Path("news_worker.py")
+NEWS = NEWS_PATH.read_text(encoding="utf-8")
+news_tree = ast.parse(NEWS)
+news_functions = {
+    node.name: node
+    for node in ast.walk(news_tree)
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+}
+run_worker = ast.get_source_segment(NEWS, news_functions["run_worker"])
+assert "download_article_image" in run_worker
+assert "NEWS_SKIPPED_NO_IMAGE" in run_worker
+assert "generate_illustration(" not in run_worker
+assert "send_photo(" in run_worker
 print("RSS mixed-date chronological sorting checks passed.")
 print("Market price provider fallback and side-specific GeckoTerminal pool checks passed.")
 print("Gallery likes API contract checks passed.")
