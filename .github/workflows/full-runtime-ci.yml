@@ -40,7 +40,9 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/runtime
         working-directory: runtime
-        run: pytest -q tests
+        run: |
+          pytest -q tests
+          python tests/api-smoke.py
       - name: Run public publisher package tests
         env:
           PYTHONPATH: ${{ github.workspace }}
