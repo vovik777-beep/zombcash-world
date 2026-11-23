@@ -6,7 +6,7 @@ All credentials are read at call time from environment variables.
 """
 from __future__ import annotations
 
-from bot.publish_target import get_publish_api_url
+from .publish_target import get_publish_api_url
 
 import base64
 import json
