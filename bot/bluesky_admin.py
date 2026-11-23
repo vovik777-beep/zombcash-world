@@ -8,7 +8,7 @@ import urllib.error
 
 from telegram.ext import CommandHandler
 
-from bot.social_publishers import check_bluesky_connection
+from .social_publishers import check_bluesky_connection
 
 
 async def bskycheck_command(update, context):
