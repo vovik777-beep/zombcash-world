@@ -48,4 +48,7 @@ def register_bluesky_admin_command(application, is_admin_fn):
     if not callable(is_admin_fn):
         raise ValueError("is_admin_fn is required to preserve admin-only command access")
     application.bot_data["is_admin"] = is_admin_fn
+    if application.bot_data.get("_zombcash_bskycheck_registered"):
+        return
     application.add_handler(CommandHandler("bskycheck", bskycheck_command))
+    application.bot_data["_zombcash_bskycheck_registered"] = True
