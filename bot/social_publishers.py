@@ -245,3 +245,32 @@ def publish_bluesky_post(
         raise RuntimeError("Bluesky did not return a post URI")
     logging.info("Bluesky post published successfully: %s", uri)
     return True
+
+
+def check_bluesky_connection(*, handle=None, app_password=None, service=None, opener=urllib.request.urlopen):
+    """Validate Bluesky app-password authentication without publishing a post."""
+    handle = (
+        os.getenv("BLUESKY_HANDLE", "zombcash.bsky.social")
+        if handle is None else handle
+    ).strip()
+    app_password = (
+        os.getenv("BLUESKY_APP_PASSWORD", "")
+        if app_password is None else app_password
+    ).strip()
+    if not app_password:
+        return {"ok": False, "reason": "BLUESKY_APP_PASSWORD is not configured"}
+    service = (
+        os.getenv("BLUESKY_SERVICE_URL", "https://bsky.social")
+        if service is None else service
+    ).rstrip("/")
+    request = urllib.request.Request(
+        service + "/xrpc/com.atproto.server.createSession",
+        data=json.dumps({"identifier": handle, "password": app_password}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with opener(request, timeout=25) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    if not payload.get("accessJwt") or not payload.get("did"):
+        return {"ok": False, "reason": "Bluesky returned an incomplete session"}
+    return {"ok": True, "handle": handle}
