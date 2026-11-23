@@ -80,12 +80,10 @@ class AutoPostImageStore:
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         metadata["status"] = status
         metadata.update(fields)
-        temporary = metadata_path.with_name(metadata_path.name + ".tmp")
         self._atomic_write(
-            temporary,
+            metadata_path,
             json.dumps(metadata, ensure_ascii=False, indent=2).encode("utf-8"),
         )
-        os.replace(temporary, metadata_path)
 
     def mark_sending(self, style: str) -> None:
         self._update_status(style, "sending", send_started_at=time.time())
