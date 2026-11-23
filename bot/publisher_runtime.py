@@ -5,20 +5,24 @@ Nothing is started merely by importing this module.
 """
 from __future__ import annotations
 
+from bot.bluesky_admin import register_bluesky_admin_command
 from bot.caption_generator import ask_gemini
 from bot.hourly_publisher import register_hourly_publisher
 from bot.website_showcase import register_website_showcase
 
 
-def register_publishing_schedules(application, gemini_client):
+def register_publishing_schedules(application, gemini_client, is_admin_fn):
     """Register hourly editorial and 3-hour website spotlights exactly once per app."""
     if gemini_client is None:
         raise ValueError("gemini_client is required for publishing schedules")
+    if not callable(is_admin_fn):
+        raise ValueError("is_admin_fn is required to preserve /bskycheck admin access")
     application.bot_data["gemini_client"] = gemini_client
 
     async def ask_gemini_for_scheduled_posts(task):
         return await ask_gemini(task, gemini_client=gemini_client)
 
+    register_bluesky_admin_command(application, is_admin_fn)
     register_hourly_publisher(application)
     # Website showcase uses a different module; remove any stale copy before restoring it.
     for job in application.job_queue.get_jobs_by_name("zombcash_website_showcase"):
