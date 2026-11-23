@@ -115,6 +115,7 @@ Before a separately approved cutover, configure the following environment variab
 
 ### Required for the Telegram publisher runtime
 
+- `ZOMBCASH_TELEGRAM_CHAT_ID` — **set this explicitly to the private staging channel before any staging launch** (for example, `@zombcash_staging_test`). It defaults to `@ZOMBCASH` only to preserve the existing production destination; never rely on that default in staging.
 - `TELEGRAM_BOT_TOKEN` — Telegram bot token.
 - `GEMINI_API_KEY` — Gemini API key used by the caption generator.
 - `POLLINATIONS_API_KEY` — Pollinations image-generation API key. The hourly image service fails closed if it is absent.
