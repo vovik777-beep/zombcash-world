@@ -25,6 +25,10 @@ from google import genai
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
+RUNTIME_ENV = os.getenv("ZOMBCASH_ENV", "").strip().lower()
+if RUNTIME_ENV not in {"staging", "production"}:
+    raise RuntimeError("Set ZOMBCASH_ENV explicitly to staging or production before starting the RSS worker")
+
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 CHANNEL_ID = get_publish_target()
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
