@@ -5,10 +5,10 @@ import logging
 import os
 import time
 
-from bot.ai_text_client import generate_with_fallback
-from bot.pollinations_text_client import generate_text as pollinations_generate
-from bot.project_memory import get_memory_text
-from bot.system_prompt import SYSTEM_PROMPT
+from .ai_text_client import generate_with_fallback
+from .pollinations_text_client import generate_text as pollinations_generate
+from .project_memory import get_memory_text
+from .system_prompt import SYSTEM_PROMPT
 
 
 GEMINI_QUOTA_COOLDOWN_UNTIL = 0.0
@@ -16,7 +16,7 @@ GEMINI_QUOTA_COOLDOWN_UNTIL = 0.0
 
 async def ask_gemini(task, *, gemini_client, pollinations_client=pollinations_generate,
                      memory_path=None, logger=logging, monotonic=time.monotonic):
-    """Compatibility name retained from bot.py; uses the original system prompt."""
+    """Compatibility name retained from .py; uses the original system prompt."""
     global GEMINI_QUOTA_COOLDOWN_UNTIL
     prompt = (
         SYSTEM_PROMPT
