@@ -115,6 +115,7 @@ Before a separately approved cutover, configure the following environment variab
 
 ### Required for the Telegram publisher runtime
 
+- `ZOMBCASH_ENV` — must be explicitly set to `staging` for the public staging entry point and RSS worker. The RSS worker also accepts `production` only for a separately approved production cutover; it refuses to start if this is missing or invalid.
 - `ZOMBCASH_ENV` — set to `staging` for isolated tests; in this mode the publisher refuses to start a delivery unless a private test channel is explicitly configured.
 - `ZOMBCASH_TELEGRAM_CHAT_ID` — **set this explicitly to the private staging channel before any staging launch** (for example, `@zombcash_staging_test`). Staging rejects a missing value and rejects `@ZOMBCASH`. Outside staging, it defaults to `@ZOMBCASH` to preserve existing production behavior.
 - `TELEGRAM_BOT_TOKEN` — Telegram bot token.
