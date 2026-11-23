@@ -2173,12 +2173,12 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "The overall mood is seductive, dangerous, aristocratic and unmistakably undead — a vampire-zombie dark fantasy world first, fashion styling second."
         )
         styles = [
-            "ultra-photorealistic full-body gothic lingerie editorial, medium-format camera, natural skin texture and fine lace detail",
-            "luxury sheer-lace dark fashion campaign, crisp 85mm full-length photograph, realistic fabric transparency",
-            "prestige live-action dark-romance film still, full-body composition, practical candlelight and lifelike skin",
-            "high-end post-apocalyptic gothic lingerie campaign, cinematic 50mm full-length photograph and natural depth of field",
-            "photorealistic vampire pin-up fashion photography, translucent black lace lingerie and restrained jade-green rim light",
-            "luxury dark editorial full-body photograph, realistic eyes, natural imperfections, fine film grain and elegant chiaroscuro"
+            "photorealistic live-action vampire gothic film still, moonlit cathedral, lifelike undead skin and dramatic chiaroscuro",
+            "prestige dark-fantasy character portrait, ruined aristocratic palace, realistic velvet, leather and antique metal",
+            "cinematic vampire-zombie horror-romance editorial, luminous supernatural eyes, subtle fangs and natural skin texture",
+            "high-end dark-fantasy warrior campaign, practical forged armor, raven motifs, storm light and realistic materials",
+            "photorealistic gothic aristocracy fashion photograph, black velvet, oxblood silk, antique jewelry and restrained jade rim light",
+            "luxury undead empress portrait, crypt candlelight, realistic facial detail, fine film grain and elegant shadows"
         ]
     wardrobe_direction = ""
     if style_mode == "PHOTO_PINUP":
