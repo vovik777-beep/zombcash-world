@@ -6,7 +6,7 @@ constraints are retained verbatim. This module does not call an image provider.
 from __future__ import annotations
 
 import random
-from bot.scene_history import choose_fresh_scene
+from .scene_history import choose_fresh_scene
 
 SUPPORTED_STYLES = frozenset({"HORROR", "CARTOON", "PHOTO_PINUP"})
 
