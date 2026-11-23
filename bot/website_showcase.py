@@ -9,6 +9,8 @@ import time
 import urllib.request
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.publish_target import get_publish_target
+
 INTERVAL = max(900, int(os.getenv("SITE_PROMO_INTERVAL_SECONDS", "10800")))
 STATE = os.getenv("SITE_PROMO_STATE_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "site_promo_state.json"))
 HOME = "https://zombcash.github.io/"
@@ -127,14 +129,14 @@ def register_website_showcase(application, ask_gemini):
         try:
             photo = await asyncio.to_thread(_screenshot, url)
             photo.name = "zombcash-site-" + key + ".jpg"
-            await context.bot.send_photo(chat_id="@ZOMBCASH", photo=photo, caption=caption,
+            await context.bot.send_photo(chat_id=get_publish_target(), photo=photo, caption=caption,
                                          parse_mode="HTML", reply_markup=keyboard)
             sent = True
             logging.info("Website spotlight with screenshot published: %s", key)
         except Exception:
             logging.exception("Screenshot failed; trying a text post")
             try:
-                await context.bot.send_message(chat_id="@ZOMBCASH", text=caption,
+                await context.bot.send_message(chat_id=get_publish_target(), text=caption,
                     parse_mode="HTML", reply_markup=keyboard, disable_web_page_preview=False)
                 sent = True
             except Exception:
