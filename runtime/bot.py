@@ -119,8 +119,9 @@ TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY")
 HEROINE_CANONICAL_REFERENCE_URL = "https://raw.githubusercontent.com/vovik777-beep/zombcash-world/main/runtime/assets/heroine/heroine-canonical-reference.webp"
-HEROINE_HUMAN_REFERENCE_URL = os.getenv("HEROINE_HUMAN_REFERENCE_URL", HEROINE_CANONICAL_REFERENCE_URL).strip()
-HEROINE_UNDEAD_REFERENCE_URL = os.getenv("HEROINE_UNDEAD_REFERENCE_URL", HEROINE_CANONICAL_REFERENCE_URL).strip()
+HEROINE_HUMAN_REFERENCE_URL = os.getenv("HEROINE_HUMAN_REFERENCE_URL", "https://raw.githubusercontent.com/vovik777-beep/zombcash-world/main/runtime/assets/heroine/heroine-human-reference.webp").strip()
+HEROINE_TRANSITION_REFERENCE_URL = os.getenv("HEROINE_TRANSITION_REFERENCE_URL", "https://raw.githubusercontent.com/vovik777-beep/zombcash-world/main/runtime/assets/heroine/heroine-transition-reference.webp").strip()
+HEROINE_UNDEAD_REFERENCE_URL = os.getenv("HEROINE_UNDEAD_REFERENCE_URL", "https://raw.githubusercontent.com/vovik777-beep/zombcash-world/main/runtime/assets/heroine/heroine-undead-reference.webp").strip()
 NEWS_PUBLISH_TOKEN = os.getenv("NEWS_PUBLISH_TOKEN", "").strip()
 NEWS_PUBLISH_API_URL = os.getenv("NEWS_PUBLISH_API_URL", "https://zombcash-bot.fadehost.app/api/news/published").strip()
 
@@ -2256,6 +2257,8 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
         heroine_form = chosen_scene.split("|", 1)[0].replace("FORM=", "").strip()
         if heroine_form == "HUMAN":
             heroine_reference_url = HEROINE_HUMAN_REFERENCE_URL
+        elif heroine_form == "TRANSITION":
+            heroine_reference_url = HEROINE_TRANSITION_REFERENCE_URL
         elif heroine_form == "UNDEAD":
             heroine_reference_url = HEROINE_UNDEAD_REFERENCE_URL
         else:
