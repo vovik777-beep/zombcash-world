@@ -134,6 +134,16 @@ Before a separately approved cutover, configure the following environment variab
 - `GEMINI_QUOTA_COOLDOWN_SECONDS` — Gemini quota fallback cooldown; defaults to 21600 seconds and is clamped to at least 300 seconds.
 - `ZOMBCASH_AUTO_POST_STATE_FILE`, `ZOMBCASH_AUTO_POST_LOCK_FILE`, `ZOMBCASH_AUTO_POST_PENDING_DIR` — optional persistent paths for hourly rotation state, its process lock, and pending image recovery.
 
+### Start commands for an isolated staging host
+
+Set `ZOMBCASH_ENV=staging`, `ZOMBCASH_TELEGRAM_CHAT_ID` to a private test channel, and configure the required secrets before starting either process. The hourly + website scheduler now has an explicit entry point:
+
+```bash
+python -m bot.publisher_main
+```
+
+This process requires `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `POLLINATIONS_API_KEY`, and `ZOMBCASH_ADMIN_IDS` (comma-separated numeric Telegram user IDs). It registers the hourly and three-hour jobs and then starts Telegram polling. Missing or unsafe staging destination configuration fails before the application starts. Do not run this command against the production channel during staging.
+
 ### Separate RSS news process
 
 Run the RSS worker as a separate service with `python -m bot.news_worker`. It requires `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY` at process startup. It polls RSS every 600 seconds, publishes no more than one eligible story per cycle, and mirrors a confirmed Telegram publication to the website when `NEWS_PUBLISH_TOKEN` is configured. Keep its persistent `/data` volume mounted so the SQLite delivery ledger and daily journal survive restarts.
