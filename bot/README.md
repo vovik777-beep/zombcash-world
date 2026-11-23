@@ -151,6 +151,8 @@ Do not delete, rename, reset, overwrite, or move these files. Do not copy their 
 
 The public publishing modules are not a drop-in replacement for the private production application. A future cutover must first be designed as an integration into the existing single-app runtime, preserving all currently supervised services and Telegram handlers while replacing—not duplicating—the hourly and website scheduling paths and retaining the separate RSS worker exactly once.
 
+There is also a Python import-name collision to resolve before that integration: the private application entry point is the top-level file `bot.py`, while this public workspace currently uses a package directory named `bot/`. Importing `bot.hourly_publisher` from the private app's repository root can resolve the `bot.py` module instead of the package and fail because that module is not a package. Do not add this package as a dependency under the current `bot` namespace. Before integration, move/rename the public package to a unique namespace (for example, `zombcash_publisher`) and update its internal imports and tests, or use another explicitly tested collision-free loading strategy.
+
 Before any cutover is considered:
 
 1. Review source parity for hourly publishing, website spotlight and RSS news against the current private `main`.
