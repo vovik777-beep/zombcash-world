@@ -39,7 +39,7 @@ These remain in the private repository and continue to be maintained there.
 
 ## Current layout
 
-- `bot/` — staged publishing worker source and focused tests
+- `bot/` — staged publishing worker source and focused tests; packaged for installation as `zombcash_publisher`
 - `bot/requirements.txt` — minimal dependencies for the current publishing workers
 - `.github/workflows/zombcash-publisher-ci.yml` — isolated publishing CI
 
@@ -127,8 +127,8 @@ The public branch is currently for source review and offline CI only. There is n
 ## Safe validation boundary
 
 - The GitHub Actions suite compiles the public publishing package and runs mocked/unit tests. It does not contact Telegram, Gemini, Pollinations, LINE, Bluesky or the website API.
-- `python -m bot.publisher_main` is a staging-only Telegram polling entry point. It requires a separate staging bot token and private test channel. Do not run it on the existing FadeHost app or alongside the production `bot.py` polling process.
-- `python -m bot.news_worker` is a separate RSS process. The existing production `start.sh` already starts its own private-repository `news_worker.py`; do not start this public worker as an additional production worker.
+- `python -m zombcash_publisher.publisher_main` is a staging-only Telegram polling entry point. It requires a separate staging bot token and private test channel. Do not run it on the existing FadeHost app or alongside the production `bot.py` polling process.
+- `python -m zombcash_publisher.news_worker` is a separate RSS process. The existing production `start.sh` already starts its own private-repository `news_worker.py`; do not start this public worker as an additional production worker.
 - Never run a second production hourly scheduler or RSS publisher.
 - Do not send real test posts, generate paid images, or authenticate external providers during offline CI.
 
@@ -151,7 +151,7 @@ Do not delete, rename, reset, overwrite, or move these files. Do not copy their 
 
 The public publishing modules are not a drop-in replacement for the private production application. A future cutover must first be designed as an integration into the existing single-app runtime, preserving all currently supervised services and Telegram handlers while replacing—not duplicating—the hourly and website scheduling paths and retaining the separate RSS worker exactly once.
 
-There is also a Python import-name collision to resolve before that integration: the private application entry point is the top-level file `bot.py`, while this public workspace currently uses a package directory named `bot/`. Importing `bot.hourly_publisher` from the private app's repository root can resolve the `bot.py` module instead of the package and fail because that module is not a package. Do not add this package as a dependency under the current `bot` namespace. Before integration, move/rename the public package to a unique namespace (for example, `zombcash_publisher`) and update its internal imports and tests, or use another explicitly tested collision-free loading strategy.
+The Python import-name collision with the private top-level `bot.py` has been addressed in the public workspace: `pyproject.toml` installs the source under the unique import namespace `zombcash_publisher`, while source modules use package-relative imports. The repository folder remains `bot/` so the existing focused tests can run unchanged. CI installs the distribution and smoke-tests imports from `zombcash_publisher`. The private runtime has not been modified, and this packaging change does not authorize a deployment or cutover.
 
 Before any cutover is considered:
 
@@ -162,3 +162,8 @@ Before any cutover is considered:
 5. Do not merge PR #1, change FadeHost's GitHub connection, redeploy, restart production, or send live publications without explicit approval.
 
 The three cadences remain independent: hourly editorial rotation = 3,600 seconds; website spotlight = 10,800 seconds; RSS polling = 600 seconds with at most one eligible story per cycle.
+
+
+## Collision-free Python package namespace
+
+Install the public source with `python -m pip install .` and import it as `zombcash_publisher` (not `bot`). The source remains under `bot/` for the isolated test suite, but the distribution maps that directory to the unique runtime package name. This avoids collision with the private application's top-level `bot.py`. The CI workflow verifies the installed namespace before running regression tests.
