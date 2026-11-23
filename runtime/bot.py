@@ -585,7 +585,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/top — View top survivors\n"
         "/test_memes — Publish one ZombieCash Memes test image (owner only)\n"
         "/test_afterdark — Publish one Undead After Dark test image (owner only)\n"
-        "/test_horror — Publish one Nightmare & Horror test image (owner only)\n\n"
+        "/test_horror — Publish one Nightmare & Horror test image (owner only)\n"
+        "/test_heroine — Generate one heroine diary test image (owner only)\n\n"
         "☣️ COMMUNITY RAIDS\n"
         "/raidhelp — Raid instructions\n"
         "/raidmission — View the active mission\n"
@@ -2081,48 +2082,55 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
         ]
 
     elif style_mode == "HEROINE":
-        # HEROINE'S SURVIVAL DIARY: one recurring field anchor across connected story moments.
+        # One recurring heroine; the scene's FORM tag controls her story state.
         scenes = [
-            "DIARY ENTRY 01 — the heroine broadcasts a short field report from a rain-soaked rooftop above a powerless city, emergency lights blinking far below",
-            "DIARY ENTRY 02 — she slips into an abandoned underground laboratory, examining a cracked specimen case while her flashlight catches movement behind frosted glass",
-            "DIARY ENTRY 03 — she finds a survivor's handwritten map pinned inside a deserted metro station and notices fresh infected footprints leading away",
-            "DIARY ENTRY 04 — a silent infected ambush begins in a flooded service tunnel; she backs toward the emergency ladder with her flashlight raised",
-            "DIARY ENTRY 05 — she searches a ruined medical archive for a missing research drive, dust and paper drifting through a narrow beam of cold light",
-            "DIARY ENTRY 06 — between expeditions she rests in a fortified shelter, repairing a radio beside a small lantern and a wall of hand-marked maps",
-            "DIARY ENTRY 07 — she meets two exhausted adult survivors at a barricaded checkpoint and cautiously exchanges supplies beneath a broken warning sign",
-            "DIARY ENTRY 08 — she discovers an old containment chamber standing open, its warning lights dead and a huge shadow visible behind the glass",
-            "DIARY ENTRY 09 — she crosses a deserted railway platform at blue dawn, carrying a recovered field case while distant infected silhouettes emerge through fog",
-            "DIARY ENTRY 10 — she climbs the stairs of a ruined observatory to retrieve an emergency transmitter, storm clouds gathering over the skyline",
-            "DIARY ENTRY 11 — she finds a hidden cache of medicine and batteries beneath a collapsed research outpost, checking the corridor before taking it",
-            "DIARY ENTRY 12 — after a dangerous expedition she records a voice note in the shelter, exhausted but composed, with rain tapping against the boarded window",
-            "DIARY ENTRY 13 — she follows a trail of strange green laboratory residue through a botanical research wing overtaken by dark vines",
-            "DIARY ENTRY 14 — she helps another adult survivor escape through a maintenance hatch while infected shadows approach from the corridor",
-            "DIARY ENTRY 15 — she stands at a rooftop signal mast at night, trying to contact other survivor enclaves across the dead city",
-            "DIARY ENTRY 16 — she studies a recovered artifact on a workbench in the shelter, comparing its markings with notes from the abandoned lab",
+            "FORM=HUMAN | DIARY 01 — dark-haired heroine in fitted olive camouflage and practical tactical field gear explores an abandoned laboratory with a flashlight",
+            "FORM=HUMAN | DIARY 02 — brunette heroine in a weathered camouflage jacket, tactical vest and cargo trousers studies a survivor map at a rain-streaked checkpoint",
+            "FORM=HUMAN | DIARY 03 — dark-haired heroine in military field clothing searches a deserted metro station for medicine, listening for movement",
+            "FORM=HUMAN | DIARY 04 — brunette heroine in camouflage and fingerless gloves repairs a radio at a fortified shelter, focused and quietly confident",
+            "FORM=HUMAN | DIARY 05 — dark-haired heroine in tactical camouflage crosses a ruined hospital corridor carrying a medical field case; a green glow appears behind quarantine glass",
+            "FORM=HUMAN | DIARY 06 — brunette heroine in practical military gear pins a recovered laboratory photograph to a map wall, realizing the outbreak began closer to home",
+            "FORM=TRANSITION | DIARY 07 — the same woman studies her reflection; dark hair develops silver strands and one eye has a faint amber-red glow, while she still wears camouflage",
+            "FORM=TRANSITION | DIARY 08 — the same heroine sits alone in a shelter, half her hair turning silver-white, a subtle glow in her eyes and first delicate scars; beautiful, intelligent and troubled",
+            "FORM=TRANSITION | DIARY 09 — during a laboratory escape, the same woman has dark roots and silver strands, one natural eye and one softly glowing amber-red eye; camouflage jacket torn, biohazard pendant visible",
+            "FORM=TRANSITION | DIARY 10 — close cinematic portrait at the moment of awakening, silver spreading through dark hair, both eyes beginning to glow amber-red, biohazard goggles in her hands",
+            "FORM=UNDEAD | DIARY 11 — silver-haired heroine with luminous amber-red eyes and subtle facial scars examines a classified infection card in a cold laboratory corridor; black goggles with neon-green biohazard lenses rest on her head",
+            "FORM=UNDEAD | DIARY 12 — silver-haired heroine in a fitted black $ZOMBCASH tank top, tactical shoulder straps, fingerless gloves and biohazard pendant records a mysterious rooftop broadcast",
+            "FORM=UNDEAD | DIARY 13 — same heroine in a distressed black leather field jacket and fitted dark top searches a containment chamber, glowing eyes reflected in the glass",
+            "FORM=UNDEAD | DIARY 14 — silver hair loose and wild, goggles above her forehead, black $ZOMBCASH top and torn tactical layers; she moves through a flooded tunnel with a flashlight",
+            "FORM=UNDEAD | DIARY 15 — silver-haired heroine with amber-red glowing eyes, biohazard goggles and pendant studies a vial of toxic green fluid in a hidden research room",
+            "FORM=UNDEAD | DIARY 16 — silver-haired heroine in a fitted black $ZOMBCASH top and weathered black jacket stands at a rooftop signal mast, enigmatic against the dead city",
         ]
         visual_direction = (
-            "A recurring ZOMBCASH FIELD ANCHOR in a connected cinematic survival diary, matching the established Library heroine artwork. "
-            "Continuity lock: portray the same unmistakably adult woman, late 20s, in every image: pale cool-toned skin, messy "
-            "white/silver hair, vivid glowing pink-magenta eyes, visible healed facial scars and scratches, and a fierce, alert, "
-            "slightly defiant expression. Keep dark industrial goggles on her head with neon-green biohazard symbols on the lenses. "
-            "Her signature outfit is a black weathered leather tactical jacket with a clear neon-green biohazard shoulder patch, "
-            "a fitted black tank top bearing the exact '$ZOMBCASH' ticker in bold readable lettering when possible, a biohazard "
-            "pendant/choker, tactical straps, fingerless gloves and practical field gear. Preserve her silver hair, magenta eyes, "
-            "facial scars, goggles, jacket patch and overall face identity across all diary entries; change only pose, weather, "
-            "equipment wear and scene-specific damage. She is a resourceful, battle-tested survivor and field reporter, not a "
-            "generic fashion model. Photorealistic live-action survival-thriller cinematography with realistic skin, scars, leather, "
-            "metal and fabric. Recreate the established dark ruined-city atmosphere: charcoal grey, black, cold steel, toxic neon "
-            "green moonlight/fog and subtle magenta eye highlights; keep red minimal. Zombies with glowing green eyes may appear "
-            "as distant silhouettes. Show a believable action or discovery, not a static pin-up pose. Her clothing stays practical "
-            "and fully covers intimate areas. No lingerie, nudity, cartoon rendering, anime illustration, plastic CGI, text errors, "
-            "watermarks or unrelated logos. If the exact '$ZOMBCASH' text cannot be rendered cleanly, leave the tank top unlettered."
+            "ZOMBCASH HEROINE CHARACTER BIBLE: one iconic adult woman, age 25+, the same person and same facial identity in every image. "
+            "She is exceptionally beautiful, feminine, magnetic and mysterious, with elegant facial proportions, expressive eyes, full natural lips, "
+            "realistic skin texture and a confident emotionally readable gaze. Preserve the same face shape, nose, lips, cheekbones and body proportions "
+            "across every form. Never turn her into a generic model or a different actress. "
+            "FORM LOCK: obey the selected scene's FORM= tag exactly. HUMAN: dark brown or near-black hair, natural human eyes, no glowing pupils, "
+            "no zombie pallor and no silver hair; attractive credible olive/grey camouflage, fitted tactical field clothing, practical vest or backpack "
+            "straps, cargo trousers, gloves and boots. Keep her silhouette feminine and athletic; avoid bulky shapeless armor. "
+            "TRANSITION: same face and body, with only the partial infection changes named in that scene; do not complete the transformation early. "
+            "UNDEAD: tousled silver/white hair, luminous amber-red eyes matching the supplied generated reference, subtle dark under-eye shading, "
+            "delicate freckles/scars and a hypnotic, slightly dangerous expression. Signature markers: black industrial goggles on her head with "
+            "neon-green biohazard symbols on the lenses, biohazard pendant/choker, black fingerless gloves and tactical shoulder straps. "
+            "Her undead outfit may be a fitted black tank top with the exact '$ZOMBCASH' ticker, a distressed black leather jacket or stylish torn "
+            "tactical layers. Daring, feminine and alluring, but non-explicit and suitable for a survival story. Do not force undead markers into "
+            "HUMAN scenes unless the scene explicitly calls for them. The two forms are the same woman, not sisters or different actresses. "
+            "Her attractiveness, face identity, proportions and charisma never change. Personality: intelligence, resourcefulness, dark humor, "
+            "vulnerability and controlled danger. She may be quietly sensual and self-assured without posing like a fashion catalogue model. "
+            "Create cinematic story moments with meaningful action, expressive eyes, graceful natural posture and a strong environmental narrative. "
+            "Photorealistic live-action prestige survival-thriller cinematography, lifelike skin, believable fabric, metal, weather and practical lighting. "
+            "Palette: charcoal, black, graphite, cold steel, muted olive camouflage, toxic neon green accents and restrained amber-red eye glow only in "
+            "UNDEAD scenes; minimal unrelated red. Preserve the scene's exact form and outfit. No random hair/eye changes, outfit switches or face drift; "
+            "no anime/cartoon look, plastic CGI, nudity, exposed intimate areas, distorted anatomy, text errors, watermarks or unrelated logos. "
+            "If '$ZOMBCASH' cannot be rendered accurately, keep the top plain rather than inventing misspelled text."
         )
         styles = [
-            "photorealistic prestige survival-thriller film still, ARRI Alexa 65, subtle film grain",
-            "grounded post-apocalyptic documentary cinematography, natural overcast light and realistic materials",
-            "high-end live-action outbreak drama, 50mm lens, expressive natural face and atmospheric depth",
-            "cinematic field-report photography, practical flashlight lighting and restrained cold color grade",
-            "photorealistic survival-horror adventure frame, realistic weather, fabric and environmental detail",
+            "photorealistic prestige survival-thriller film still, subtle 35mm grain and natural skin detail",
+            "high-end live-action outbreak drama, cinematic 50mm lens, expressive face and atmospheric depth",
+            "grounded post-apocalyptic character photography, practical lighting and tactile materials",
+            "cinematic field-report still, beautiful chiaroscuro and restrained cold color grade",
+            "photorealistic dark survival adventure frame, natural weather and detailed environment",
         ]
     else:
         # UNDEAD AFTER DARK: photorealistic, sensual full-body gothic lingerie fashion portraits.
@@ -2239,9 +2247,11 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
     prompt = (
         "Create a completely new original ZombieCash zombie-apocalypse image. "
         "Scene: " + chosen_scene + ". Visual direction: " + visual_direction + ". "
-        "Art style: " + random.choice(styles) + ". Camera: " + composition + ". "
-        "Make this image visually distinct from recent posts; vary location, character appearance, body type, hairstyle, outfit, pose, camera distance, lens perspective, color palette, and lighting. "
-        "Use a different visual subgenre and composition each time; avoid repeated poster layouts and repeated character designs. "
+        "Art style: " + random.choice(styles) + ". Camera: " + composition + ". " +
+        ("For HEROINE, preserve the same woman's face, age, facial proportions and the scene's declared HUMAN/TRANSITION/UNDEAD form; vary only location, action, expression, pose, camera distance and lighting. Never randomize her hair color, eye state, body identity or outfit form. "
+         if style_mode == "HEROINE" else
+         "Make this image visually distinct from recent posts; vary location, character appearance, body type, hairstyle, outfit, pose, camera distance, lens perspective, color palette, and lighting. "
+         "Use a different visual subgenre and composition each time; avoid repeated poster layouts and repeated character designs. ") +
         "CAMERA ORIENTATION FOR UNDEAD AFTER DARK IS CRITICAL: show a natural LEFT OR RIGHT SIDE PROFILE. Keep shoulders, ribcage, waist and pelvis aligned in the same direction; do not twist the torso or rotate the hips toward the camera. The model's body is side-on, while her head turns only slightly toward the lens so her face remains visible. Never show a rear view, back-to-camera pose, looking-away pose or over-the-shoulder rear composition. Use an eye-level 50mm perspective with natural proportions and no wide-angle distortion. " +
         "ANATOMY QUALITY CONTROL IS CRITICAL: every visible human character has exactly one head, one neck, two shoulders, two arms, two hands, two legs and two feet; natural human proportions, correctly attached limbs, anatomically plausible joints and hands, five fingers on each visible hand. Never add extra, duplicated, missing, fused, twisted or detached limbs, hands, feet, fingers, heads or facial features. No backwards-facing heads, reversed joints, broken spines, impossible body twists, melted anatomy or overlapping body parts. Keep hands and feet clearly separated and naturally posed. Avoid extreme foreshortening, hands directly against the lens, limbs crossing the torso, crawling on all fours, mid-air contortions and complex multi-character contact. Prefer stable, physically believable standing, crouching, kneeling, walking or running poses with clear silhouettes. If a pose risks anatomical distortion, simplify it rather than sacrificing anatomy. "
         "Square composition, high detail, believable materials, strong readable focal point. "
