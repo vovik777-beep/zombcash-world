@@ -21,7 +21,7 @@ Do not migrate or refactor the following unless required as a direct dependency 
 - API server and unrelated endpoints
 - Sniper/trading modules and wallet data
 - SOI analytics and ingestion
-- LINE, Moltbook, Bluesky, or other social integrations
+- Moltbook and unrelated social integrations. **LINE and Bluesky cross-posting are part of the existing hourly editorial publisher and MUST be preserved**, including their current failure isolation and platform-specific formatting.
 - experimental AI agents, diagnostics, and internal operations tools
 
 These remain in the private repository and continue to be maintained there.
@@ -59,7 +59,7 @@ Required dependencies identified from the current private `main` source:
 
 - Image lifecycle: `generate_zombiecash_image`, pending-image persistence helpers, and `release_image_memory`.
 - Caption/context: `ask_gemini`, `load_project_memory`.
-- Cross-post adapters: `publish_line_meme`, `publish_bluesky_post`, `_bluesky_text_fits`.
+- Cross-post adapters: `publish_line_meme`, `publish_bluesky_post`, `_bluesky_text_fits`. LINE and Bluesky are required parity behavior for hourly rotation; they are not optional features.
 - Rotation state/scheduling: rotation-state helpers, Telegram Application JobQueue, Telegram Bot API, shared `/data` state directory and POSIX `fcntl` lock.
 
 ### Extracted groundwork: image runtime and resource safety
@@ -74,6 +74,10 @@ Required dependencies identified from the current private `main` source:
 
 `bot/scene_history.py` now isolates the style-specific recent-scene selector. It retains the existing eight-scene avoidance window, falls back to the full scene list when all entries are recent, keeps histories separate by style, and writes UTF-8 JSON atomically with `fsync` + `os.replace`. Tests cover style isolation, history trimming, malformed files, fallback cycling, and atomic-write cleanup. The production bot has not yet been rewired to this helper; its `/data/auto_post_history.json` remains untouched.
 
+### Extracted groundwork: editorial content and cross-post formatting
+
+`bot/auto_post_content.py` isolates the three existing editorial voices, exact caption-generation instructions, Telegram HTML caption/footer (including CA, website, X and Telegram links), and Bluesky post composition. Bluesky formatting removes hashtags only when needed, preserves the complete generated caption, and skips rather than truncates if the platform limit still cannot be met. Tests cover all three styles, escaping, link retention, and length behavior. The actual LINE and Bluesky network adapters still need extraction and integration tests.
+
 ### Extracted groundwork: AI text provider fallback
 
 `bot/ai_text_client.py` isolates the existing Gemini model fallback order, two-attempt behavior for transient failures, quota detection, parsed retry-after cooldown (minimum five minutes), and Pollinations text fallback. Prompt construction and project-memory loading remain outside this module and are passed in by the caller. Provider calls are injectable; tests make no external API requests.
@@ -82,7 +86,7 @@ Required dependencies identified from the current private `main` source:
 
 `bot/auto_post_state.py` now isolates pending-image persistence from the monolithic bot. It retains the production safety rule: a record marked `sending` is ambiguous and is treated as already sent, so an automatic retry cannot resend it. Image bytes and metadata are written atomically. Unit tests cover save/reload, ambiguous delivery, sent-message IDs, cleanup, and supported styles.
 
-**Important:** these extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. Prompt/scene composition, Prompt composition/project-memory integration, Telegram delivery, retry orchestration, and cross-post adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable.
+**Important:** these extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. Full prompt/scene composition, project-memory integration, Telegram delivery, retry orchestration, and the actual LINE and Bluesky network adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable. Do not remove or disable LINE or Bluesky during migration.
 
 The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,800 seconds. News polling remains 600 seconds. These schedules are independent.
 
