@@ -11,8 +11,8 @@ import os
 from google import genai
 from telegram.ext import Application
 
-from bot.publish_target import get_publish_target
-from bot.publisher_runtime import register_publishing_schedules
+from .publish_target import get_publish_target
+from .publisher_runtime import register_publishing_schedules
 
 
 def _required_env(name: str) -> str:
