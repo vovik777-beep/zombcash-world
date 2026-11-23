@@ -11,8 +11,18 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 INTERVAL = max(900, int(os.getenv("SITE_PROMO_INTERVAL_SECONDS", "10800")))
 _APP_STATE = os.path.join(os.getcwd(), "site_promo_state.json")
+_DATA_STATE = os.path.join(os.getenv("DATA_DIR", "/data"), "site_promo_state.json")
 _LOCAL_STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "site_promo_state.json")
-STATE = os.getenv("SITE_PROMO_STATE_FILE") or (_APP_STATE if os.path.isfile(_APP_STATE) else _LOCAL_STATE)
+if os.getenv("SITE_PROMO_STATE_FILE"):
+    STATE = os.getenv("SITE_PROMO_STATE_FILE")
+elif os.path.isfile(_DATA_STATE):
+    STATE = _DATA_STATE
+elif os.path.isfile(_APP_STATE):
+    STATE = _APP_STATE
+elif os.path.isdir(os.path.dirname(_DATA_STATE)) and os.access(os.path.dirname(_DATA_STATE), os.W_OK):
+    STATE = _DATA_STATE
+else:
+    STATE = _LOCAL_STATE
 HOME = "https://zombcash.github.io/"
 PAGES = [
  ("home","ZOMBIECASH HQ",HOME,"The official project hub: token identity, ecosystem navigation, project updates, community links and access to the tools.","Show newcomers where the whole ZombieCash ecosystem starts."),

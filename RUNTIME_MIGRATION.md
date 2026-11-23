@@ -62,7 +62,7 @@ Keep the existing FadeHost persistent storage in place. Do not delete, rename, r
 - `/data/tv/tv.sqlite3`
 - `/data/soi/`
 
-The website spotlight now resolves the existing `site_promo_state.json` in the FadeHost working directory before falling back to a runtime-local file. Keep that existing root-level file in place.
+The website spotlight now prefers `/data/site_promo_state.json`, then the existing root-level `site_promo_state.json`, and only then a runtime-local fallback. Before switching repositories, copy the current root-level state file into `/data/site_promo_state.json` if that persistent copy does not already exist. The runtime never overwrites an existing `/data` state file automatically.
 
 The private repository also contains a committed `community_coins.sqlite3` and `survival_stats.json` seed/state file. They were deliberately not published. Before switching repositories, verify that the current persistent copies `/data/community_coins.sqlite3` and `/data/survival_stats.json` exist and contain the latest data. If either is missing, preserve/copy it from the current private app into the existing persistent volume using a secure private transfer; do not put the database or player data in GitHub. Also preserve any other mutable root-level JSON/database files still used by the current deployment.
 
@@ -77,7 +77,7 @@ The private repository also contains a committed `community_coins.sqlite3` and `
 
 1. Get a green public CI run and review every failure rather than weakening tests to make CI green.
 2. Compare the current FadeHost environment variable names with the code and set the owner/group IDs listed above in FadeHost only.
-3. Confirm all existing persistent state paths above are present and current; especially check `community_coins.sqlite3`, `survival_stats.json`, and `site_promo_state.json`.
+3. Confirm all existing persistent state paths above are present and current; especially check `community_coins.sqlite3`, `survival_stats.json`, and `site_promo_state.json`. If the last file exists only in the old repository working directory, copy it to `/data/site_promo_state.json` before switching.
 4. Install dependencies from the public root `requirements.txt`.
 5. Verify the public launcher starts the same existing service set, with one Telegram polling process and one RSS worker.
 6. Perform a controlled cutover only after explicit user approval: change the existing FadeHost app's repository to `vovik777-beep/zombcash-world` and the reviewed branch/commit, preserve the same app and persistent volume, then restart that same app.
