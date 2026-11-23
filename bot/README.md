@@ -167,3 +167,12 @@ The three cadences remain independent: hourly editorial rotation = 3,600 seconds
 ## Collision-free Python package namespace
 
 Install the public source with `python -m pip install .` and import it as `zombcash_publisher` (not `bot`). The source remains under `bot/` for the isolated test suite, but the distribution maps that directory to the unique runtime package name. This avoids collision with the private application's top-level `bot.py`. The CI workflow verifies the installed namespace before running regression tests.
+
+
+## Existing private host integration note (reviewed 2026-11-23)
+
+The current private `bot.py` already registers an admin-only `/bskycheck` command. When integrating this package into that host, call `register_publishing_schedules(application, client, is_admin, register_admin_command=False)` so the existing handler is retained and no duplicate `/bskycheck` handler is added. The host's existing `is_admin(update)` callback and Gemini client are passed through; do not create a second Telegram application or polling loop.
+
+The private startup currently schedules the hourly job and website spotlight directly. During an approved cutover, replace those two startup registrations with the package registration call above; `register_hourly_publisher` removes/replaces the existing `zombcash_auto_post_rotation` job, and the website registration clears its stale named job before restoring its own cadence. Do not leave both old and new schedule registrations in place.
+
+For the RSS worker, keep exactly one process in the existing `start.sh` supervision tree. The public worker requires `ZOMBCASH_ENV=production` explicitly; if/when its source replaces the private worker, update the existing single News worker command rather than adding another supervisor entry. Preserve the existing `/data/news_delivery.sqlite3` and `/data/news_daily_journal.json` state paths.
