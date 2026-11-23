@@ -12,7 +12,7 @@ import logging
 import random
 import urllib.request
 
-from bot.image_runtime import normalize_generated_image
+from .image_runtime import normalize_generated_image
 
 
 API_URL = "https://gen.pollinations.ai/v1/images/generations"
