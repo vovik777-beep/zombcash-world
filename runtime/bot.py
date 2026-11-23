@@ -2315,8 +2315,9 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
                 " Retry with a clearly different camera angle and simpler, more readable composition."
             )
         try:
+            used_reference = False
             if style_mode == "HEROINE" and heroine_reference_url:
-                # Flux Kontext uses the supplied canonical image as a real image-to-image identity reference.
+                # Try image-to-image first. A rejected reference must not disable the category.
                 query = urllib.parse.urlencode({
                     "model": "black-forest-labs/flux.1-kontext-pro",
                     "width": 1024,
@@ -2339,14 +2340,25 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
                     method="GET",
                 )
 
-                def download_image_response():
+                def download_reference_image():
                     with urllib.request.urlopen(request, timeout=120) as response:
                         return response.read(10 * 1024 * 1024 + 1)
 
-                image_bytes = await asyncio.to_thread(download_image_response)
-                if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
-                    raise ValueError("Reference image generation returned empty data or exceeded 10 MB")
-            else:
+                try:
+                    image_bytes = await asyncio.to_thread(download_reference_image)
+                    used_reference = True
+                except urllib.error.HTTPError as reference_error:
+                    if reference_error.code != 400:
+                        raise
+                    error_detail = reference_error.read(1200).decode("utf-8", errors="replace")
+                    logging.warning(
+                        "HEROINE reference rejected (HTTP 400); falling back to text-to-image: %s",
+                        error_detail[:500],
+                    )
+
+            if not used_reference:
+                # Reliable text-to-image fallback; still honors the selected HUMAN/UNDEAD scene.
+                attempt_payload["model"] = "flux"
                 request = urllib.request.Request(
                     "https://gen.pollinations.ai/v1/images/generations",
                     data=json.dumps(attempt_payload).encode("utf-8"),
@@ -2373,8 +2385,9 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
                 image_bytes = base64.b64decode(encoded, validate=True)
                 if not image_bytes or len(image_bytes) > 6 * 1024 * 1024:
                     raise ValueError("Generated image is empty or exceeds the 6 MB source limit")
-                # Drop the large JSON/base64 response before Pillow allocates decode buffers.
                 del result, image_data, encoded
+            elif not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
+                raise ValueError("Reference image generation returned empty data or exceeded 10 MB")
             normalized_bytes = normalize_generated_image(image_bytes)
             del image_bytes
             image = io.BytesIO(normalized_bytes)
