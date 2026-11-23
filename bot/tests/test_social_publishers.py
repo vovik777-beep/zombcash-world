@@ -58,8 +58,12 @@ class SocialPublisherTests(unittest.TestCase):
         self.assertFalse(publish_bluesky_post("caption", b"image", app_password=""))
 
     def test_bluesky_requires_native_image(self):
+        def opener(request, timeout):
+            return FakeResponse({"accessJwt": "jwt", "did": "did:plc:test"})
         with self.assertRaisesRegex(RuntimeError, "native image"):
-            publish_bluesky_post("caption", None, app_password="test")
+            publish_bluesky_post(
+                "caption", None, app_password="test", opener=opener
+            )
 
     def test_bluesky_uploads_image_and_creates_record(self):
         image = Image.new("RGB", (24, 16), (10, 20, 30))
