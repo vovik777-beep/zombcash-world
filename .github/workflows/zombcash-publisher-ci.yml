@@ -29,6 +29,10 @@ jobs:
           python-version: "3.11"
       - name: Install publishing dependencies
         run: python -m pip install -r bot/requirements.txt
+      - name: Install the collision-free publisher package
+        run: python -m pip install .
+      - name: Verify installed namespace imports
+        run: python -c "import zombcash_publisher; import zombcash_publisher.publisher_runtime; import zombcash_publisher.hourly_publisher; import zombcash_publisher.website_showcase"
       - name: Compile publishing workers and extracted modules
         run: python -m compileall -q bot
       - name: Run publishing regression tests
