@@ -2247,7 +2247,7 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
     prompt = (
         "Create a completely new original ZombieCash zombie-apocalypse image. "
         "Scene: " + chosen_scene + ". Visual direction: " + visual_direction + ". "
-        "Art style: " + random.choice(styles) + ". Camera: " + composition + ". "
+        "Art style: " + random.choice(styles) + ". Camera: " + composition + ". " +
         ("For HEROINE, preserve the same woman's face, age, facial proportions and the scene's declared HUMAN/TRANSITION/UNDEAD form; vary only location, action, expression, pose, camera distance and lighting. Never randomize her hair color, eye state, body identity or outfit form. "
          if style_mode == "HEROINE" else
          "Make this image visually distinct from recent posts; vary location, character appearance, body type, hairstyle, outfit, pose, camera distance, lens perspective, color palette, and lighting. "
