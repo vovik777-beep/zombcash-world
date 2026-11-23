@@ -2,13 +2,12 @@
 
 AUTO_POST_INTERVAL_SECONDS = 60 * 60
 
-# Weighted four-slot cycle: After Dark receives half of all posts.
-# Memes and Horror each receive one quarter.
+# Balanced four-category cycle: each series receives one post per four slots.
 AUTO_POST_CATEGORIES = (
     ("ZombieCash Memes", "CARTOON"),
     ("Undead After Dark", "PHOTO_PINUP"),
     ("Nightmare & Horror", "HORROR"),
-    ("Undead After Dark", "PHOTO_PINUP"),
+    ("HEROINE'S SURVIVAL DIARY", "HEROINE"),
 )
 
 
