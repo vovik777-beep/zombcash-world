@@ -26,6 +26,7 @@ from bot.caption_generator import ask_gemini
 from bot.image_runtime import release_image_memory
 from bot.image_service import generate_zombiecash_image
 from bot.project_memory import load_project_memory
+from bot.publish_target import get_publish_target
 from bot.social_publishers import bluesky_text_fits, publish_bluesky_post, publish_line_meme
 
 
@@ -177,7 +178,7 @@ async def _auto_post_job_once(
             # Reserve delivery first. An ambiguous timeout must never resend this image.
             store.mark_sending(image_style)
             telegram_message = await context.bot.send_photo(
-                chat_id="@ZOMBCASH",
+                chat_id=get_publish_target(),
                 photo=image,
                 caption=telegram_caption,
                 parse_mode="HTML",
