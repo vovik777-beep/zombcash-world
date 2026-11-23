@@ -10,9 +10,9 @@ import io
 import logging
 import os
 
-from bot.image_prompt import SUPPORTED_STYLES, build_image_prompt
-from bot.image_runtime import ensure_image_generation_memory, log_image_memory, release_image_memory
-from bot.pollinations_image_client import generate_image
+from .image_prompt import SUPPORTED_STYLES, build_image_prompt
+from .image_runtime import ensure_image_generation_memory, log_image_memory, release_image_memory
+from .pollinations_image_client import generate_image
 
 
 IMAGE_GENERATION_LOCK = asyncio.Lock()
