@@ -14,20 +14,20 @@ import os
 import time
 from pathlib import Path
 
-from bot.auto_post_content import (
+from .auto_post_content import (
     STYLE_NAMES,
     build_bluesky_post_text,
     build_caption_prompt,
     build_telegram_caption,
 )
-from bot.auto_post_schedule import AUTO_POST_CATEGORIES, AUTO_POST_INTERVAL_SECONDS, normalize_rotation_index
-from bot.auto_post_state import AutoPostImageStore
-from bot.caption_generator import ask_gemini
-from bot.image_runtime import release_image_memory
-from bot.image_service import generate_zombiecash_image
-from bot.project_memory import load_project_memory
-from bot.publish_target import get_publish_target
-from bot.social_publishers import bluesky_text_fits, publish_bluesky_post, publish_line_meme
+from .auto_post_schedule import AUTO_POST_CATEGORIES, AUTO_POST_INTERVAL_SECONDS, normalize_rotation_index
+from .auto_post_state import AutoPostImageStore
+from .caption_generator import ask_gemini
+from .image_runtime import release_image_memory
+from .image_service import generate_zombiecash_image
+from .project_memory import load_project_memory
+from .publish_target import get_publish_target
+from .social_publishers import bluesky_text_fits, publish_bluesky_post, publish_line_meme
 
 
 STATE_FILE = os.getenv("ZOMBCASH_AUTO_POST_STATE_FILE", "/data/auto_post_state.json")
