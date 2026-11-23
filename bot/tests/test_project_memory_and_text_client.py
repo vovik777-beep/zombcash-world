@@ -31,6 +31,18 @@ class ProjectMemoryTests(unittest.TestCase):
             self.assertEqual(load_project_memory(path=path), expected)
             self.assertEqual(json.loads(get_memory_text(path=path)), expected)
 
+    def test_default_resolver_prefers_private_runtime_memory_in_working_directory(self):
+        import os
+        from unittest.mock import patch
+        from bot.project_memory import get_memory_file
+
+        with tempfile.TemporaryDirectory() as directory:
+            expected = Path(directory) / "project_memory.json"
+            expected.write_text(json.dumps({"contract_address": "PRIVATE_CA"}), encoding="utf-8")
+            with patch.dict(os.environ, {"ZOMBCASH_PROJECT_MEMORY_FILE": ""}):
+                with patch("bot.project_memory.Path.cwd", return_value=Path(directory)):
+                    self.assertEqual(get_memory_file(), expected)
+
     def test_missing_or_invalid_memory_uses_safe_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             missing = Path(directory) / "missing.json"
