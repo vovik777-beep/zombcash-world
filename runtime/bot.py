@@ -118,8 +118,9 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY")
-HEROINE_HUMAN_REFERENCE_URL = os.getenv("HEROINE_HUMAN_REFERENCE_URL", "").strip()
-HEROINE_UNDEAD_REFERENCE_URL = os.getenv("HEROINE_UNDEAD_REFERENCE_URL", "").strip()
+HEROINE_CANONICAL_REFERENCE_URL = "https://raw.githubusercontent.com/vovik777-beep/zombcash-world/main/runtime/assets/heroine/heroine-canonical-reference.webp"
+HEROINE_HUMAN_REFERENCE_URL = os.getenv("HEROINE_HUMAN_REFERENCE_URL", HEROINE_CANONICAL_REFERENCE_URL).strip()
+HEROINE_UNDEAD_REFERENCE_URL = os.getenv("HEROINE_UNDEAD_REFERENCE_URL", HEROINE_CANONICAL_REFERENCE_URL).strip()
 NEWS_PUBLISH_TOKEN = os.getenv("NEWS_PUBLISH_TOKEN", "").strip()
 NEWS_PUBLISH_API_URL = os.getenv("NEWS_PUBLISH_API_URL", "https://zombcash-bot.fadehost.app/api/news/published").strip()
 
