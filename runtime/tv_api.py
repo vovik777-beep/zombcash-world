@@ -136,9 +136,12 @@ def _is_admin(request, read_session) -> bool:
     telegram_id = read_session(request)
     if not telegram_id or not str(telegram_id).isdigit():
         return False
-    # Keep the bot owner's existing administrator identity and honor the bot's
-    # established additional-admin environment variable.
-    allowed = {"8461681081"}
+    # Never publish a personal Telegram ID; read administrator identities
+    # only from the existing deployment environment.
+    allowed = set()
+    owner_id = os.getenv("ZOMBCASH_OWNER_ID", "").strip()
+    if owner_id.isdigit():
+        allowed.add(owner_id)
     allowed.update(
         value.strip()
         for value in os.getenv("ZOMBCASH_ADMIN_IDS", "").split(",")
