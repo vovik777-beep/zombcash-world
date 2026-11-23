@@ -20,7 +20,7 @@ The launcher supervises:
 5. Boost Monitor
 6. optional Moltbook agent when `MOLTBOOK_ENABLED=true`
 
-The source retains the hourly editorial rotation (3,600 seconds), the website spotlight cadence (10,800 seconds), and the RSS poll interval (600 seconds). These are independent schedules in the existing main bot/news worker. Do not add a second Telegram poller, scheduler, RSS worker or FadeHost app.
+The source retains the hourly editorial rotation (3,600 seconds), the website spotlight cadence (10,800 seconds), and the RSS poll interval (600 seconds). These are independent schedules in the existing main bot/news worker. The news worker uses only the original image supplied by the article publisher; it skips stories without a source image and does not invoke AI image generation. Do not add a duplicate main-bot poller, scheduler, RSS worker or FadeHost app.
 
 **SOI status:** its source and tests are retained, but the current production bot source explicitly disables SOI pending redesign. The bot does not register SOI collection jobs. The public copy was made safer: it preserves `/data/soi/` and does not delete historical SOI state on startup. Do not claim live SOI collection is running.
 
