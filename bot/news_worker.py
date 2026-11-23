@@ -19,7 +19,7 @@ import feedparser
 from telegram import Bot
 from telegram.request import HTTPXRequest
 
-from bot.publish_target import get_publish_api_url, get_publish_target
+from .publish_target import get_publish_api_url, get_publish_target
 from google import genai
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
