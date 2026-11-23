@@ -40,6 +40,17 @@ class PublisherMainTests(unittest.TestCase):
                 build_application()
             builder.assert_not_called()
 
+    def test_entry_point_refuses_to_start_outside_staging(self):
+        with patch.dict(os.environ, {
+            "TELEGRAM_BOT_TOKEN": "test-token",
+            "GEMINI_API_KEY": "test-gemini-key",
+            "POLLINATIONS_API_KEY": "test-pollinations-key",
+            "ZOMBCASH_ADMIN_IDS": "123",
+        }, clear=True), patch("bot.publisher_main.Application.builder") as builder:
+            with self.assertRaisesRegex(RuntimeError, "staging-only"):
+                build_application()
+            builder.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()
