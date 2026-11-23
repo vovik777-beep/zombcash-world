@@ -9,6 +9,7 @@ from PIL import Image
 from bot.social_publishers import (
     bluesky_grapheme_count,
     bluesky_text_fits,
+    check_bluesky_connection,
     publish_bluesky_post,
     publish_line_meme,
 )
@@ -53,6 +54,24 @@ class SocialPublisherTests(unittest.TestCase):
         self.assertEqual(payload["kind"], "meme")
         self.assertEqual(payload["telegramUrl"], "https://t.me/ZOMBCASH/123")
         self.assertEqual(base64.b64decode(payload["imageBase64"]), b"image-bytes")
+
+    def test_bluesky_connection_check_skips_without_secret(self):
+        self.assertEqual(
+            check_bluesky_connection(app_password=""),
+            {"ok": False, "reason": "BLUESKY_APP_PASSWORD is not configured"},
+        )
+
+    def test_bluesky_connection_check_authenticates_without_publishing(self):
+        calls = []
+        def opener(request, timeout):
+            calls.append((request.full_url, timeout))
+            return FakeResponse({"accessJwt": "jwt", "did": "did:plc:test"})
+        result = check_bluesky_connection(
+            handle="zombcash.bsky.social", app_password="test",
+            service="https://bsky.example", opener=opener,
+        )
+        self.assertEqual(result, {"ok": True, "handle": "zombcash.bsky.social"})
+        self.assertEqual(calls, [("https://bsky.example/xrpc/com.atproto.server.createSession", 25)])
 
     def test_bluesky_skips_cleanly_without_secret(self):
         self.assertFalse(publish_bluesky_post("caption", b"image", app_password=""))
