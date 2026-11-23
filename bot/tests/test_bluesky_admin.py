@@ -40,12 +40,15 @@ class BlueskyAdminCommandTests(unittest.TestCase):
         self.assertIn("authentication works", message.replies[0])
         self.assertIn("No post was published", message.replies[0])
 
-    def test_registration_requires_admin_guard(self):
-        application = SimpleNamespace(bot_data={}, add_handler=lambda handler: None)
+    def test_registration_requires_admin_guard_and_is_idempotent(self):
+        added = []
+        application = SimpleNamespace(bot_data={}, add_handler=lambda handler: added.append(handler))
         with self.assertRaisesRegex(ValueError, "is_admin_fn"):
             register_bluesky_admin_command(application, None)
         register_bluesky_admin_command(application, lambda update: True)
+        register_bluesky_admin_command(application, lambda update: True)
         self.assertTrue(callable(application.bot_data["is_admin"]))
+        self.assertEqual(len(added), 1)
 
 
 if __name__ == "__main__":
