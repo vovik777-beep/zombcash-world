@@ -1786,7 +1786,7 @@ async def handle_message(
 AUTO_POST_HISTORY_FILE = "/data/auto_post_history.json"
 
 AUTO_POST_PENDING_DIR = "/data/auto_post_pending_images"
-AUTO_POST_PENDING_STYLES = {"CARTOON", "PHOTO_PINUP", "HORROR"}
+AUTO_POST_PENDING_STYLES = {"CARTOON", "PHOTO_PINUP", "HORROR", "HEROINE"}
 
 
 def _auto_post_pending_paths(style_mode):
