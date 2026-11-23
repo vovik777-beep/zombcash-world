@@ -20,4 +20,7 @@ def register_publishing_schedules(application, gemini_client):
         return await ask_gemini(task, gemini_client=gemini_client)
 
     register_hourly_publisher(application)
+    # Website showcase uses a different module; remove any stale copy before restoring it.
+    for job in application.job_queue.get_jobs_by_name("zombcash_website_showcase"):
+        job.schedule_removal()
     register_website_showcase(application, ask_gemini_for_scheduled_posts)
