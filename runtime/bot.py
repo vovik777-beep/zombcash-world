@@ -2120,7 +2120,7 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "vulnerability and controlled danger. She may be quietly sensual and self-assured without posing like a fashion catalogue model. "
             "Create cinematic story moments with meaningful action, expressive eyes, graceful natural posture and a strong environmental narrative. "
             "Photorealistic live-action prestige survival-thriller cinematography, lifelike skin, believable fabric, metal, weather and practical lighting. "
-            "Palette: charcoal, black, graphite, cold steel, muted olive camouflage, toxic neon green accents and restrained amber-red eye glow only in "
+            "Palette: charcoal, black, graphite, cold steel, muted olive camouflage, toxic neon green accents and vivid magenta eye glow with amber-red cores only in "
             "UNDEAD scenes; minimal unrelated red. Preserve the scene's exact form and outfit. No random hair/eye changes, outfit switches or face drift; "
             "no anime/cartoon look, plastic CGI, nudity, exposed intimate areas, distorted anatomy, text errors, watermarks or unrelated logos. "
             "If '$ZOMBCASH' cannot be rendered accurately, keep the top plain rather than inventing misspelled text."
