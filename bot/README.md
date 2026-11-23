@@ -127,8 +127,8 @@ Before a separately approved cutover, configure the following environment variab
 - `BLUESKY_HANDLE` — defaults to `zombcash.bsky.social`.
 - `BLUESKY_APP_PASSWORD` — dedicated Bluesky app password; without it, Bluesky cross-posting and `/bskycheck` report that the integration is not configured.
 - `BLUESKY_SERVICE_URL` — defaults to `https://bsky.social`.
-- `NEWS_PUBLISH_TOKEN` — token for LINE / website queue synchronization; without it, that mirror is skipped.
-- `NEWS_PUBLISH_API_URL` — news worker website endpoint; defaults to the existing FadeHost endpoint.
+- `NEWS_PUBLISH_TOKEN` — token for LINE / website queue synchronization; without it, that mirror is skipped. In staging, leave it unset unless you have a dedicated staging API.
+- `NEWS_PUBLISH_API_URL` — website queue endpoint. Production retains the existing FadeHost default; staging never inherits that default and skips website sync unless this variable explicitly points to a dedicated staging endpoint.
 - `SITE_PROMO_INTERVAL_SECONDS` — website spotlight interval; defaults to 10800 seconds and is clamped to at least 900 seconds.
 - `SITE_PROMO_STATE_FILE` — optional persistent path for website spotlight rotation state; recommended value on the hosting volume: `/data/site_promo_state.json`.
 - `GEMINI_QUOTA_COOLDOWN_SECONDS` — Gemini quota fallback cooldown; defaults to 21600 seconds and is clamped to at least 300 seconds.
