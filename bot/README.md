@@ -78,19 +78,27 @@ Required dependencies identified from the current private `main` source:
 
 `bot/social_publishers.py` now contains the existing LINE shared-content-queue sync and native Bluesky image-post adapter. LINE preserves the `NEWS_PUBLISH_TOKEN` authentication, payload fields, Telegram source link, 4 MB image-embedding threshold and 20-second request timeout. Bluesky preserves app-password session creation, native JPEG blob upload (950 KB ceiling), image alt text/aspect ratio, hashtag and URL facets, and post-record creation. Credentials are read only from environment variables at runtime. Tests use mocked HTTP responses and local in-memory images; they do not publish externally.
 
-### Extracted groundwork: editorial content and cross-post formatting
+### Extracted content and cross-post formatting
 
-`bot/auto_post_content.py` isolates the three existing editorial voices, exact caption-generation instructions, Telegram HTML caption/footer (including CA, website, X and Telegram links), and Bluesky post composition. Bluesky formatting removes hashtags only when needed, preserves the complete generated caption, and skips rather than truncates if the platform limit still cannot be met. Tests cover all three styles, escaping, link retention, and length behavior. The actual LINE and Bluesky network adapters still need extraction and integration tests.
+`bot/auto_post_content.py` isolates the three existing editorial voices, exact caption-generation instructions, Telegram HTML caption/footer (including CA, website, X and Telegram links), and Bluesky post composition. Bluesky formatting removes hashtags only when needed, preserves the complete generated caption, and skips rather than truncates if the platform limit still cannot be met. Tests cover all three styles, escaping, link retention, and length behavior.
 
-### Extracted groundwork: AI text provider fallback
+### Original image prompts and guarded generation
 
-`bot/ai_text_client.py` isolates the existing Gemini model fallback order, two-attempt behavior for transient failures, quota detection, parsed retry-after cooldown (minimum five minutes), and Pollinations text fallback. Prompt construction and project-memory loading remain outside this module and are passed in by the caller. Provider calls are injectable; tests make no external API requests.
+`bot/image_prompt.py` was extracted directly from the private production `bot.py`: the original HORROR, CARTOON and PHOTO_PINUP scene lists, visual directions, wardrobe variants, composition options, anatomy rules and branding constraints are retained. `bot/image_service.py` joins that prompt builder to the Pollinations image client and production memory guard, returning the same `BytesIO` metadata contract (`zombcash_scene`, `zombcash_meme.jpg`) expected by the publisher.
+
+### Project memory and AI caption fallback
+
+`bot/system_prompt.py` contains only the original production system prompt. `bot/project_memory.py` reads the runtime project memory without copying it into the public repository; configure `ZOMBCASH_PROJECT_MEMORY_FILE` or place the file beside the module in the private runtime. `bot/pollinations_text_client.py` retains the OpenAI-compatible Pollinations text request. `bot/caption_generator.py` combines system prompt + project memory + task and uses `bot/ai_text_client.py` for the original Gemini model order, two attempts for transient failures, quota detection, parsed retry-after cooldown (minimum five minutes), and Pollinations fallback. Tests use fake providers and temporary files only.
 
 ### Extracted groundwork: durable pending-image state
 
 `bot/auto_post_state.py` now isolates pending-image persistence from the monolithic bot. It retains the production safety rule: a record marked `sending` is ambiguous and is treated as already sent, so an automatic retry cannot resend it. Image bytes and metadata are written atomically. Unit tests cover save/reload, ambiguous delivery, sent-message IDs, cleanup, and supported styles.
 
-**Important:** these extracted modules are isolated groundwork; the private production bot has not been rewired to use them, and this public workspace does not start an hourly scheduler. Full prompt/scene composition, project-memory integration, Telegram delivery, retry orchestration, and the actual LINE and Bluesky network adapters still need to be extracted and tested before the hourly publisher can be considered independently runnable. Do not remove or disable LINE or Bluesky during migration.
+### Integrated hourly publisher (staging only)
+
+`bot/hourly_publisher.py` now wires image generation, persistent pending-image recovery, the original caption prompt and AI fallback, Telegram image delivery, LINE website/API queue sync, Bluesky native-image cross-posting, retry backoff, POSIX process lock, rotation-state persistence and elapsed-time restoration for the hourly schedule. Telegram success is authoritative: LINE or Bluesky failure is isolated and cannot roll back the successful Telegram post. An ambiguous `sending` marker is finalized without re-sending the image. Integration tests use fake Telegram delivery and mocked cross-post failures; they verify the hourly slot advances and the three-hour website cadence is not involved.
+
+**Important:** this is still staging code. The private production bot has not been rewired, no public scheduler is started, and the public implementation has not been deployed. Runtime bootstrap must explicitly provide `gemini_client` in `application.bot_data` and call `register_hourly_publisher` only during an approved cutover. The private `project_memory.json` remains runtime data and is not copied into the public repository. Do not remove or disable LINE or Bluesky during migration.
 
 The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,800 seconds. News polling remains 600 seconds. These schedules are independent.
 
