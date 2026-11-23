@@ -107,53 +107,56 @@ The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,8
 The public workspace must be populated from reviewed source files, not by importing the private repository's history. The existing private repository remains the operational fallback until the user explicitly approves a tested cutover.
 
 
-## Staging startup and restart verification
+## FadeHost deployment constraint — current plan
 
-The CI suite is deliberately offline: it compiles the workers and uses mocked providers / Telegram delivery. It does not authenticate with Telegram, Gemini, Pollinations, LINE, Bluesky, or the website API.
+The existing FadeHost Starter account has one production bot slot. Do **not** create a second FadeHost app, upgrade the plan, or change the current app's repository as part of this migration.
 
-Before a separately approved cutover, configure the following environment variables in the hosting secret store. Never commit their values.
+The current FadeHost app is still connected to the private repository `vovik777-beep/zombcash-bot`, branch `main`. Its root `start.sh` supervises several services:
 
-### Required for the Telegram publisher runtime
+- `api_server.py` — project API
+- `bot.py` — main Telegram bot, handlers, hourly editorial rotation, website spotlight and other bot features
+- `news_worker.py` — separate RSS news publisher
+- `radar_bot.py` — Meme Radar
+- `boost_monitor.py` — Solana Boost Monitor
+- optional `moltbook_agent.py` when `MOLTBOOK_ENABLED=true`
 
-- `ZOMBCASH_ENV` — must be explicitly set to `staging` for the public staging entry point and RSS worker. The RSS worker also accepts `production` only for a separately approved production cutover; it refuses to start if this is missing or invalid.
-- `ZOMBCASH_ENV` — set to `staging` for isolated tests; in this mode the publisher refuses to start a delivery unless a private test channel is explicitly configured.
-- `ZOMBCASH_TELEGRAM_CHAT_ID` — **set this explicitly to the private staging channel before any staging launch** (for example, `@zombcash_staging_test`). Staging rejects a missing value and rejects `@ZOMBCASH`. Outside staging, it defaults to `@ZOMBCASH` to preserve existing production behavior.
-- `TELEGRAM_BOT_TOKEN` — Telegram bot token.
-- `GEMINI_API_KEY` — Gemini API key used by the caption generator.
-- `POLLINATIONS_API_KEY` — Pollinations image-generation API key. The hourly image service fails closed if it is absent.
-- `ZOMBCASH_PROJECT_MEMORY_FILE` — optional absolute path to the private runtime `project_memory.json`; if omitted, the loader checks beside the module and uses safe defaults when the file is unavailable.
+This public migration slice intentionally does **not** contain the API server, main bot handlers, Radar, Boost Monitor or the optional Moltbook agent. Therefore, pointing the existing FadeHost app directly at this repository/branch would remove working services. Do not do that.
 
-### Optional integrations and tuning
+The public branch is currently for source review and offline CI only. There is no live staging deployment on the current FadeHost plan.
 
-- `BLUESKY_HANDLE` — defaults to `zombcash.bsky.social`.
-- `BLUESKY_APP_PASSWORD` — dedicated Bluesky app password; without it, Bluesky cross-posting and `/bskycheck` report that the integration is not configured.
-- `BLUESKY_SERVICE_URL` — defaults to `https://bsky.social`.
-- `NEWS_PUBLISH_TOKEN` — token for LINE / website queue synchronization; without it, that mirror is skipped. In staging, leave it unset unless you have a dedicated staging API.
-- `NEWS_PUBLISH_API_URL` — website queue endpoint. Production retains the existing FadeHost default; staging never inherits that default and skips website sync unless this variable explicitly points to a dedicated staging endpoint.
-- `SITE_PROMO_INTERVAL_SECONDS` — website spotlight interval; defaults to 10800 seconds and is clamped to at least 900 seconds.
-- `SITE_PROMO_STATE_FILE` — optional persistent path for website spotlight rotation state; recommended value on the hosting volume: `/data/site_promo_state.json`.
-- `GEMINI_QUOTA_COOLDOWN_SECONDS` — Gemini quota fallback cooldown; defaults to 21600 seconds and is clamped to at least 300 seconds.
-- `ZOMBCASH_AUTO_POST_STATE_FILE`, `ZOMBCASH_AUTO_POST_LOCK_FILE`, `ZOMBCASH_AUTO_POST_PENDING_DIR` — optional persistent paths for hourly rotation state, its process lock, and pending image recovery.
+## Safe validation boundary
 
-### Start commands for an isolated staging host
+- The GitHub Actions suite compiles the public publishing package and runs mocked/unit tests. It does not contact Telegram, Gemini, Pollinations, LINE, Bluesky or the website API.
+- `python -m bot.publisher_main` is a staging-only Telegram polling entry point. It requires a separate staging bot token and private test channel. Do not run it on the existing FadeHost app or alongside the production `bot.py` polling process.
+- `python -m bot.news_worker` is a separate RSS process. The existing production `start.sh` already starts its own private-repository `news_worker.py`; do not start this public worker as an additional production worker.
+- Never run a second production hourly scheduler or RSS publisher.
+- Do not send real test posts, generate paid images, or authenticate external providers during offline CI.
 
-Set `ZOMBCASH_ENV=staging`, `ZOMBCASH_TELEGRAM_CHAT_ID` to a private test channel, and configure the required secrets before starting either process. The hourly + website scheduler now has an explicit entry point:
+## Production state that must remain untouched
 
-```bash
-python -m bot.publisher_main
-```
+The existing production runtime uses persistent files under `/data`, including:
 
-This process requires `TELEGRAM_BOT_TOKEN`, `GEMINI_API_KEY`, `POLLINATIONS_API_KEY`, and `ZOMBCASH_ADMIN_IDS` (comma-separated numeric Telegram user IDs). It registers the hourly and three-hour jobs and then starts Telegram polling. Missing or unsafe staging destination configuration fails before the application starts. Do not run this command against the production channel during staging.
+- `/data/auto_post_state.json` — hourly rotation timestamp and next slot
+- `/data/auto_post_pending_images/` — pending/sending/sent image recovery records
+- `/data/auto_post_rotation.lock` — cross-process hourly publisher lock
+- `/data/auto_post_history.json` — recent scene history
+- `/data/news_delivery.sqlite3` — news delivery/idempotency ledger
+- `/data/news_daily_journal.json` — daily news journal
 
-### Separate RSS news process
+The current private runtime also reads `project_memory.json` beside `bot.py`; the existing website spotlight state is stored beside the private `website_showcase.py` module. These are live runtime data, not source files to copy into this public repository.
 
-Run the RSS worker as a separate service with `python -m bot.news_worker`. It requires `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY` at process startup. It polls RSS every 600 seconds, publishes no more than one eligible story per cycle, and mirrors a confirmed Telegram publication to the website when `NEWS_PUBLISH_TOKEN` is configured. Keep its persistent `/data` volume mounted so the SQLite delivery ledger and daily journal survive restarts.
+Do not delete, rename, reset, overwrite, or move these files. Do not copy their contents, production logs, secrets, user data or session data into the public workspace.
 
-### Cutover safety checklist
+## Requirements before any future cutover
 
-1. Use a staging Telegram bot and a private test channel, never `@ZOMBCASH`, for any end-to-end delivery test.
-2. Keep the hourly publisher and RSS worker as separate processes; do not start a second production scheduler.
-3. Mount persistent storage for `/data/auto_post_state.json`, `/data/auto_post_pending_images`, `/data/auto_post_rotation.lock`, `/data/site_promo_state.json` (via `SITE_PROMO_STATE_FILE`), and the news worker's SQLite / JSON state.
-4. Confirm that process restart restores the remaining hourly and three-hour delays instead of resetting either cadence.
-5. Test `/bskycheck` with an administrator account only; it authenticates and must not publish.
-6. Do not copy production secrets or live state into this public repository. Do not switch production until the user explicitly approves it.
+The public publishing modules are not a drop-in replacement for the private production application. A future cutover must first be designed as an integration into the existing single-app runtime, preserving all currently supervised services and Telegram handlers while replacing—not duplicating—the hourly and website scheduling paths and retaining the separate RSS worker exactly once.
+
+Before any cutover is considered:
+
+1. Review source parity for hourly publishing, website spotlight and RSS news against the current private `main`.
+2. Verify that the public modules use the existing persistent state formats and paths without resetting them.
+3. Prepare an explicit integration/startup plan that retains `api_server.py`, `bot.py` handlers, `radar_bot.py`, `boost_monitor.py`, optional Moltbook, and the independent RSS worker.
+4. Keep the existing private deployment as the operational source of truth until the user explicitly approves a cutover.
+5. Do not merge PR #1, change FadeHost's GitHub connection, redeploy, restart production, or send live publications without explicit approval.
+
+The three cadences remain independent: hourly editorial rotation = 3,600 seconds; website spotlight = 10,800 seconds; RSS polling = 600 seconds with at most one eligible story per cycle.
