@@ -105,3 +105,41 @@ The hourly cadence is 3,600 seconds. The separate website spotlight remains 10,8
 ## Important
 
 The public workspace must be populated from reviewed source files, not by importing the private repository's history. The existing private repository remains the operational fallback until the user explicitly approves a tested cutover.
+
+
+## Staging startup and restart verification
+
+The CI suite is deliberately offline: it compiles the workers and uses mocked providers / Telegram delivery. It does not authenticate with Telegram, Gemini, Pollinations, LINE, Bluesky, or the website API.
+
+Before a separately approved cutover, configure the following environment variables in the hosting secret store. Never commit their values.
+
+### Required for the Telegram publisher runtime
+
+- `TELEGRAM_BOT_TOKEN` — Telegram bot token.
+- `GEMINI_API_KEY` — Gemini API key used by the caption generator.
+- `POLLINATIONS_API_KEY` — Pollinations image-generation API key. The hourly image service fails closed if it is absent.
+- `ZOMBCASH_PROJECT_MEMORY_FILE` — optional absolute path to the private runtime `project_memory.json`; if omitted, the loader checks beside the module and uses safe defaults when the file is unavailable.
+
+### Optional integrations and tuning
+
+- `BLUESKY_HANDLE` — defaults to `zombcash.bsky.social`.
+- `BLUESKY_APP_PASSWORD` — dedicated Bluesky app password; without it, Bluesky cross-posting and `/bskycheck` report that the integration is not configured.
+- `BLUESKY_SERVICE_URL` — defaults to `https://bsky.social`.
+- `NEWS_PUBLISH_TOKEN` — token for LINE / website queue synchronization; without it, that mirror is skipped.
+- `NEWS_PUBLISH_API_URL` — news worker website endpoint; defaults to the existing FadeHost endpoint.
+- `SITE_PROMO_INTERVAL_SECONDS` — website spotlight interval; defaults to 10800 seconds and is clamped to at least 900 seconds.
+- `GEMINI_QUOTA_COOLDOWN_SECONDS` — Gemini quota fallback cooldown; defaults to 21600 seconds and is clamped to at least 300 seconds.
+- `ZOMBCASH_AUTO_POST_STATE_FILE`, `ZOMBCASH_AUTO_POST_LOCK_FILE`, `ZOMBCASH_AUTO_POST_PENDING_DIR` — optional persistent paths for hourly rotation state, its process lock, and pending image recovery.
+
+### Separate RSS news process
+
+Run the RSS worker as a separate service with `python -m bot.news_worker`. It requires `TELEGRAM_BOT_TOKEN` and `GEMINI_API_KEY` at process startup. It polls RSS every 600 seconds, publishes no more than one eligible story per cycle, and mirrors a confirmed Telegram publication to the website when `NEWS_PUBLISH_TOKEN` is configured. Keep its persistent `/data` volume mounted so the SQLite delivery ledger and daily journal survive restarts.
+
+### Cutover safety checklist
+
+1. Use a staging Telegram bot and a private test channel, never `@ZOMBCASH`, for any end-to-end delivery test.
+2. Keep the hourly publisher and RSS worker as separate processes; do not start a second production scheduler.
+3. Mount persistent storage for `/data/auto_post_state.json`, `/data/auto_post_pending_images`, `/data/auto_post_rotation.lock`, and the news worker's SQLite / JSON state.
+4. Confirm that process restart restores the remaining hourly and three-hour delays instead of resetting either cadence.
+5. Test `/bskycheck` with an administrator account only; it authenticates and must not publish.
+6. Do not copy production secrets or live state into this public repository. Do not switch production until the user explicitly approves it.
