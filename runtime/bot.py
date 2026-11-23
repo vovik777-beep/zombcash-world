@@ -2266,13 +2266,15 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
     )
     if style_mode == "HEROINE":
         prompt += (
-            " HEROINE DIARY MODE OVERRIDE: this is a grounded survival-story frame, not a glamour, lingerie or pin-up image. "
-            "Ignore unrelated fashion-editorial wardrobe suggestions above. Preserve the Library heroine's silver-white messy hair, "
-            "glowing magenta eyes, pale scarred face, black goggles with neon biohazard symbols, black leather tactical jacket with "
-            "biohazard shoulder patch, biohazard pendant and black $ZOMBCASH tank top. The scene must read as one specific diary "
-            "episode with a clear action or discovery. Use charcoal-grey ruined-city cinematography, toxic neon-green fog/moonlight, "
-            "subtle magenta highlights and minimal red; keep realistic practical survival gear and fully covered clothing. "
-            "No lettering unless the exact '$ZOMBCASH' ticker can be rendered cleanly; otherwise leave the shirt unlettered."
+            " HEROINE DIARY MODE OVERRIDE: cinematic survival-story frame with a bold, glamorous undead transformation aesthetic when FORM=UNDEAD. "
+            "Ignore any generic fully-covered wardrobe restriction. Obey the selected FORM exactly: HUMAN remains dark-haired in practical camouflage; "
+            "TRANSITION shows only the specified partial changes; UNDEAD has silver-white messy hair, intensely glowing neon-magenta eyes with amber-red cores, "
+            "clearly readable elegant facial scars, black industrial goggles with neon-green biohazard symbols, biohazard pendant and a daring fitted black "
+            "$ZOMBCASH crop top or structured distressed leather top with an open jacket, exposed shoulders and tasteful midriff. The undead form should "
+            "look strikingly feminine, confident, mysterious and dangerously attractive, not bulky or fully covered. Keep intimate areas opaque and covered. "
+            "The scene must read as one specific diary episode with a clear action or discovery. Use charcoal-grey ruined-city cinematography, toxic neon-green "
+            "fog/moonlight, subtle magenta highlights and minimal red. No gore or grotesque facial deformation. No lettering unless the exact '$ZOMBCASH' "
+            "ticker can be rendered cleanly; otherwise use a simple biohazard emblem without misspelled text."
         )
     seed = random.randint(1, 2_000_000_000)
     payload = {
