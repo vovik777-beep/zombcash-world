@@ -1,0 +1,21 @@
+# Never commit runtime credentials, local state, databases or generated output.
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.coverage*
+**/*.sqlite
+**/*.sqlite3
+**/*.db
+**/*.log
+runtime/seen_news.json
+runtime/survival_stats.json
+runtime/auto_post_state.json
+runtime/auto_post_history.json
+runtime/site_promo_state.json
+runtime/project_memory.local.json
+runtime/diagnostics/

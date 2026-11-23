@@ -1,0 +1,8 @@
+python-telegram-bot[job-queue]
+requests
+aiohttp
+google-genai
+feedparser
+Pillow
+PyNaCl
+solders>=0.21,<1.0
