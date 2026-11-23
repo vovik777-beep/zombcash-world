@@ -2101,19 +2101,21 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "DIARY ENTRY 16 — she studies a recovered artifact on a workbench in the shelter, comparing its markings with notes from the abandoned lab",
         ]
         visual_direction = (
-            "A recurring ZOMBCASH FIELD ANCHOR in a connected cinematic survival diary. "
-            "Continuity lock: portray the same unmistakably adult woman, age 27+, in every image: "
-            "long dark raven hair with one subtle silver streak at the left temple, clear jade-green eyes, "
-            "a small healed scar through the right eyebrow, composed alert expression and realistic natural features. "
-            "Her signature field outfit is a charcoal-grey weathered tactical jacket over a fitted black protective field vest, "
-            "muted jade scarf, practical utility belt, dark cargo trousers, fingerless gloves and worn combat boots. "
-            "Keep her face, hair, eye color, scar and core outfit recognizably consistent; vary only practical layers or damage "
-            "when the diary scene calls for it. She is resourceful, observant and courageous, not a generic fashion model. "
-            "Photorealistic live-action survival-thriller cinematography, grounded practical locations, natural anatomy, "
-            "credible survival equipment and expressive storytelling. Palette: charcoal, cold grey, muted jade, steel blue "
-            "and restrained warm amber; use red only as a small warning-light accent. "
-            "Show a believable action or discovery, not a static pin-up pose. Keep all intimate areas fully covered. "
-            "No lingerie, nudity, sexualization, anime, cartoon, plastic CGI, text, logos or watermarks."
+            "A recurring ZOMBCASH FIELD ANCHOR in a connected cinematic survival diary, matching the established Library heroine artwork. "
+            "Continuity lock: portray the same unmistakably adult woman, late 20s, in every image: pale cool-toned skin, messy "
+            "white/silver hair, vivid glowing pink-magenta eyes, visible healed facial scars and scratches, and a fierce, alert, "
+            "slightly defiant expression. Keep dark industrial goggles on her head with neon-green biohazard symbols on the lenses. "
+            "Her signature outfit is a black weathered leather tactical jacket with a clear neon-green biohazard shoulder patch, "
+            "a fitted black tank top bearing the exact '$ZOMBCASH' ticker in bold readable lettering when possible, a biohazard "
+            "pendant/choker, tactical straps, fingerless gloves and practical field gear. Preserve her silver hair, magenta eyes, "
+            "facial scars, goggles, jacket patch and overall face identity across all diary entries; change only pose, weather, "
+            "equipment wear and scene-specific damage. She is a resourceful, battle-tested survivor and field reporter, not a "
+            "generic fashion model. Photorealistic live-action survival-thriller cinematography with realistic skin, scars, leather, "
+            "metal and fabric. Recreate the established dark ruined-city atmosphere: charcoal grey, black, cold steel, toxic neon "
+            "green moonlight/fog and subtle magenta eye highlights; keep red minimal. Zombies with glowing green eyes may appear "
+            "as distant silhouettes. Show a believable action or discovery, not a static pin-up pose. Her clothing stays practical "
+            "and fully covers intimate areas. No lingerie, nudity, cartoon rendering, anime illustration, plastic CGI, text errors, "
+            "watermarks or unrelated logos. If the exact '$ZOMBCASH' text cannot be rendered cleanly, leave the tank top unlettered."
         )
         styles = [
             "photorealistic prestige survival-thriller film still, ARRI Alexa 65, subtle film grain",
@@ -2255,11 +2257,12 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
     if style_mode == "HEROINE":
         prompt += (
             " HEROINE DIARY MODE OVERRIDE: this is a grounded survival-story frame, not a glamour, lingerie or pin-up image. "
-            "Ignore any unrelated fashion-editorial wardrobe suggestions above. Preserve the recurring field anchor's exact "
-            "face identity, raven hair with the single silver streak at the left temple, jade-green eyes, right-eyebrow scar "
-            "and charcoal tactical outfit. The scene must read as one specific diary episode with a clear action or discovery. "
-            "Use cold grey and muted jade cinematography, restrained red accents, realistic survival gear and fully covered clothing. "
-            "No text or logo unless the image model can render the exact '$ZOMBCASH' mark cleanly; otherwise leave surfaces unlettered."
+            "Ignore unrelated fashion-editorial wardrobe suggestions above. Preserve the Library heroine's silver-white messy hair, "
+            "glowing magenta eyes, pale scarred face, black goggles with neon biohazard symbols, black leather tactical jacket with "
+            "biohazard shoulder patch, biohazard pendant and black $ZOMBCASH tank top. The scene must read as one specific diary "
+            "episode with a clear action or discovery. Use charcoal-grey ruined-city cinematography, toxic neon-green fog/moonlight, "
+            "subtle magenta highlights and minimal red; keep realistic practical survival gear and fully covered clothing. "
+            "No lettering unless the exact '$ZOMBCASH' ticker can be rendered cleanly; otherwise leave the shirt unlettered."
         )
     seed = random.randint(1, 2_000_000_000)
     payload = {
