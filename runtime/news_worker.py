@@ -28,7 +28,19 @@ CHANNEL_ID = "@ZOMBCASH"
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
 NEWS_PUBLISH_TOKEN = os.getenv("NEWS_PUBLISH_TOKEN", "").strip()
-NEWS_PUBLISH_API_URL = os.getenv("NEWS_PUBLISH_API_URL", "https://zombcash-bot.fadehost.app/api/news/published").strip()
+# The API and News worker are supervised in the same FadeHost container (start.sh).
+# Use loopback for the production publisher to avoid the public Cloudflare/TLS hop.
+# Keep explicitly configured non-legacy endpoints available for staging/custom setups.
+_DEFAULT_NEWS_PUBLISH_API_URL = "http://127.0.0.1:8080/api/news/published"
+_LEGACY_PUBLIC_NEWS_PUBLISH_API_URL = "https://zombcash-bot.fadehost.app/api/news/published"
+_configured_news_publish_api_url = os.getenv("NEWS_PUBLISH_API_URL", "").strip()
+if (
+    not _configured_news_publish_api_url
+    or _configured_news_publish_api_url.rstrip("/") == _LEGACY_PUBLIC_NEWS_PUBLISH_API_URL
+):
+    NEWS_PUBLISH_API_URL = _DEFAULT_NEWS_PUBLISH_API_URL
+else:
+    NEWS_PUBLISH_API_URL = _configured_news_publish_api_url
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
 GEMINI_SECONDARY_FALLBACK_MODEL = os.getenv("GEMINI_SECONDARY_FALLBACK_MODEL", "gemini-3.6-flash").strip()
