@@ -1,0 +1,3 @@
+# Full ZombieCash runtime dependencies plus the public publisher package.
+-r runtime/requirements.txt
+-e .

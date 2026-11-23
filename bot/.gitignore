@@ -1,0 +1,44 @@
+# Runtime state and local data
+*.sqlite
+*.sqlite3
+*.db
+*.db-journal
+*.log
+*.pid
+*.state
+*.cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+secrets/
+credentials/
+*.pem
+*.key
+*.p12
+*.pfx
+service-account*.json
+*-credentials.json
+
+# User and bot runtime state
+seen_*.json
+*_initialized.json
+*_state.json
+*_memory.json
+project_memory.json
+survival_stats.json
+community_coins.sqlite3
+
+# Local exports and diagnostic artifacts
+diagnostics/
+reports/private/
+exports/
+backups/

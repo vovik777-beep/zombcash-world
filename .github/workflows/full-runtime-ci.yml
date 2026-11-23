@@ -1,0 +1,49 @@
+name: ZombieCash full runtime CI
+
+on:
+  push:
+    branches: [migration/full-bot-public]
+  pull_request:
+    branches: [main]
+    paths:
+      - "runtime/**"
+      - "bot/**"
+      - "requirements.txt"
+      - "pyproject.toml"
+      - "start.sh"
+      - "RUNTIME_MIGRATION.md"
+      - ".github/workflows/full-runtime-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install runtime and publisher dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Compile the complete runtime
+        env:
+          PYTHONPATH: ${{ github.workspace }}/runtime
+        run: python -m compileall -q runtime
+      - name: Validate the launcher
+        run: bash -n start.sh
+      - name: Run migrated runtime tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}/runtime
+        working-directory: runtime
+        run: |
+          pytest -q tests
+          python tests/api-smoke.py
+      - name: Run public publisher package tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m pytest -q bot/tests

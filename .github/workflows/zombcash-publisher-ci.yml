@@ -1,0 +1,39 @@
+name: ZombieCash publishing slice CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "bot/**"
+      - ".github/workflows/zombcash-publisher-ci.yml"
+  push:
+    branches: [migration/zombcash-bot-public]
+    paths:
+      - "bot/**"
+      - ".github/workflows/zombcash-publisher-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publishing-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install publishing dependencies
+        run: python -m pip install -r bot/requirements.txt
+      - name: Install the collision-free publisher package
+        run: python -m pip install .
+      - name: Verify installed namespace imports
+        run: python -c "import zombcash_publisher; import zombcash_publisher.publisher_runtime; import zombcash_publisher.hourly_publisher; import zombcash_publisher.website_showcase"
+      - name: Compile publishing workers and extracted modules
+        run: python -m compileall -q bot
+      - name: Run publishing regression tests
+        run: python -m unittest discover -s bot/tests -p "test_*.py" -v

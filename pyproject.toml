@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zombcash-publisher"
+version = "0.1.0"
+description = "Selective ZombieCash publishing workers"
+requires-python = ">=3.11"
+dependencies = [
+  "python-telegram-bot[job-queue]",
+  "google-genai",
+  "feedparser",
+  "Pillow",
+]
+
+[tool.setuptools]
+packages = ["zombcash_publisher"]
+package-dir = { zombcash_publisher = "bot" }
