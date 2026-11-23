@@ -9,7 +9,7 @@ import time
 import urllib.request
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-from bot.publish_target import get_publish_target
+from .publish_target import get_publish_target
 
 INTERVAL = max(900, int(os.getenv("SITE_PROMO_INTERVAL_SECONDS", "10800")))
 
