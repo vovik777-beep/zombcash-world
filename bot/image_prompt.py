@@ -280,4 +280,4 @@ def build_image_prompt(style_mode: str) -> tuple[str, str]:
         "Keep the horror-creature look exclusive to NIGHTMARE, but allow UNDEAD AFTER DARK to occasionally use a more visibly undead, haunting vampire-zombie fashion look as one randomly selected visual option. Most posts remain glamorous gothic fashion; some may feature the original eerie undead styling with pale skin, shadowed eyes and subtle corpse-like makeup. Fuse East Asian gothic fashion with tasteful Norse/Viking details such as Japanese temple architecture, pagoda bridges, shoji screens, subtle runes, raven motifs, Nordic knotwork and aged bronze. Keep the heroine visually compelling, with expressive face and elegant styling. Avoid graphic gore or extreme disfigurement. Keep the heroine large enough for her face and outfit to read clearly. Prioritize natural pose, visible face, simple stable anatomy and realistic proportions. No rear-view pose, no twisted torso, no distorted anatomy, no anime, cartoon, CGI-plastic skin, watermarks or unrelated logos."
     )
 
-return prompt, chosen_scene
+    return prompt, chosen_scene
