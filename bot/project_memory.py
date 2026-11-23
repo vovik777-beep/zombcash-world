@@ -21,7 +21,16 @@ DEFAULT_MEMORY = {
 
 def get_memory_file() -> Path:
     configured = os.getenv("ZOMBCASH_PROJECT_MEMORY_FILE", "").strip()
-    return Path(configured) if configured else Path(__file__).with_name("project_memory.json")
+    if configured:
+        return Path(configured)
+
+    # When this package is installed into the existing private bot runtime,
+    # keep reading the private project_memory.json from the app working directory.
+    runtime_file = Path.cwd() / "project_memory.json"
+    if runtime_file.is_file():
+        return runtime_file
+
+    return Path(__file__).with_name("project_memory.json")
 
 
 def load_project_memory(*, path=None, logger=logging):
