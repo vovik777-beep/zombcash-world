@@ -2978,30 +2978,20 @@ def schedule_next_auto_post(application, delay=AUTO_POST_INTERVAL, series="rotat
 # =========================
 # SOLANA OUTBREAK INTELLIGENCE — DISABLED PENDING FULL REDESIGN
 # =========================
-# Hard-disabled in code so a stale SOI_ENABLED environment variable cannot
-# accidentally restart collection. The dedicated SOI data directory is purged
-# at bot startup; all other /data files and bot databases remain untouched.
+# SOI is disabled pending a full redesign. Preserve its historical data so
+# a future restart or migration cannot erase observations and reports.
 SOI_ENABLED = False
 
 
-def purge_disabled_soi_data():
-    import shutil
-
+def preserve_disabled_soi_data():
     data_dir = os.path.realpath(os.getenv("SOI_DATA_DIR", "/data/soi"))
-    if os.path.basename(data_dir.rstrip(os.sep)).lower() != "soi" or os.path.islink(data_dir):
-        logging.error("SOI cleanup skipped: SOI_DATA_DIR is not a dedicated, safe SOI directory")
-        return
-    if not os.path.isdir(data_dir):
-        logging.info("SOI cleanup: no existing SOI data directory")
-        return
-    try:
-        shutil.rmtree(data_dir)
-        logging.warning("SOI is disabled; removed its dedicated data directory: %s", data_dir)
-    except OSError:
-        logging.exception("Could not remove the dedicated SOI data directory")
+    if os.path.isdir(data_dir) and not os.path.islink(data_dir):
+        logging.info("SOI is disabled; preserving existing data directory: %s", data_dir)
+    else:
+        logging.info("SOI is disabled; no existing data directory to preserve")
 
 
-purge_disabled_soi_data()
+preserve_disabled_soi_data()
 AUTO_POST_RETRY_DELAYS = (900, 1800, 3600)
 
 
