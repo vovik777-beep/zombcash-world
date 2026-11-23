@@ -61,10 +61,11 @@ class RestartRecoveryTests(unittest.TestCase):
             }), encoding="utf-8")
 
             app = FakeApplication()
-            with patch("bot.hourly_publisher.STATE_FILE", str(hourly_state)), \
-                 patch("bot.hourly_publisher.time.time", return_value=now), \
-                 patch("bot.website_showcase.STATE", str(website_state)), \
-                 patch("bot.website_showcase.time.time", return_value=now):
+                with ExitStack() as stack:
+                    stack.enter_context(patch("bot.hourly_publisher.STATE_FILE", str(hourly_state)))
+                    stack.enter_context(patch("bot.hourly_publisher.time.time", return_value=now))
+                    stack.enter_context(patch("bot.website_showcase.STATE", str(website_state)))
+                    stack.enter_context(patch("bot.website_showcase.time.time", return_value=now))
                 register_publishing_schedules(app, object(), lambda update: True)
 
             jobs = {job.name: job for job in app.job_queue.jobs}
@@ -102,6 +103,7 @@ class RestartRecoveryTests(unittest.TestCase):
 
 
     def test_real_telegram_application_bootstrap_registers_jobs_without_starting(self):
+        from contextlib import ExitStack
         from telegram.ext import Application
 
         now = 1_800_000_000.0
