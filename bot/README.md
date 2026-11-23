@@ -74,6 +74,10 @@ Required dependencies identified from the current private `main` source:
 
 `bot/scene_history.py` now isolates the style-specific recent-scene selector. It retains the existing eight-scene avoidance window, falls back to the full scene list when all entries are recent, keeps histories separate by style, and writes UTF-8 JSON atomically with `fsync` + `os.replace`. Tests cover style isolation, history trimming, malformed files, fallback cycling, and atomic-write cleanup. The production bot has not yet been rewired to this helper; its `/data/auto_post_history.json` remains untouched.
 
+### Extracted groundwork: LINE queue and Bluesky publishing adapters
+
+`bot/social_publishers.py` now contains the existing LINE shared-content-queue sync and native Bluesky image-post adapter. LINE preserves the `NEWS_PUBLISH_TOKEN` authentication, payload fields, Telegram source link, 4 MB image-embedding threshold and 20-second request timeout. Bluesky preserves app-password session creation, native JPEG blob upload (950 KB ceiling), image alt text/aspect ratio, hashtag and URL facets, and post-record creation. Credentials are read only from environment variables at runtime. Tests use mocked HTTP responses and local in-memory images; they do not publish externally.
+
 ### Extracted groundwork: editorial content and cross-post formatting
 
 `bot/auto_post_content.py` isolates the three existing editorial voices, exact caption-generation instructions, Telegram HTML caption/footer (including CA, website, X and Telegram links), and Bluesky post composition. Bluesky formatting removes hashtags only when needed, preserves the complete generated caption, and skips rather than truncates if the platform limit still cannot be met. Tests cover all three styles, escaping, link retention, and length behavior. The actual LINE and Bluesky network adapters still need extraction and integration tests.
