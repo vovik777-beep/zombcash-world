@@ -19,7 +19,7 @@ import feedparser
 from telegram import Bot
 from telegram.request import HTTPXRequest
 
-from bot.publish_target import get_publish_target
+from bot.publish_target import get_publish_api_url, get_publish_target
 from google import genai
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -30,7 +30,7 @@ CHANNEL_ID = get_publish_target()
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
 NEWS_PUBLISH_TOKEN = os.getenv("NEWS_PUBLISH_TOKEN", "").strip()
-NEWS_PUBLISH_API_URL = os.getenv("NEWS_PUBLISH_API_URL", "https://zombcash-bot.fadehost.app/api/news/published").strip()
+NEWS_PUBLISH_API_URL = get_publish_api_url() or ""
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite").strip()
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.8-flash").strip()
 GEMINI_SECONDARY_FALLBACK_MODEL = os.getenv("GEMINI_SECONDARY_FALLBACK_MODEL", "gemini-3.6-flash").strip()
@@ -645,6 +645,9 @@ def publish_to_website(article, summary, commentary, image_bytes, telegram_messa
     """Send the same Telegram publication to the website API without blocking the worker."""
     if not NEWS_PUBLISH_TOKEN:
         logging.warning("NEWS_PUBLISH_TOKEN is missing; enriched news will stay Telegram-only")
+        return
+    if not NEWS_PUBLISH_API_URL:
+        logging.warning("NEWS_PUBLISH_API_URL is not configured for this staging environment; website sync skipped")
         return
     payload = {
         "source": article.get("source", "ZombieCash News"),
