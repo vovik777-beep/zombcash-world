@@ -42,7 +42,7 @@ RADAR_URL = "https://t.me/ZombieCashMemeRadarBot"
 LAB_URL = "https://zombcash.github.io/?utm_source=moltbook&utm_medium=community&utm_campaign=zombie_lab"
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 ACTIVITY_CHANNEL_ID = os.getenv("MOLTBOOK_ACTIVITY_CHANNEL_ID", "@ZOMBCASH").strip()
-ACTIVITY_GROUP_ID = os.getenv("MOLTBOOK_ACTIVITY_GROUP_ID", "-1004378244345").strip()
+ACTIVITY_GROUP_ID = os.getenv("MOLTBOOK_ACTIVITY_GROUP_ID", "").strip()
 ACTIVITY_NOTIFICATIONS_ENABLED = os.getenv("MOLTBOOK_ACTIVITY_NOTIFICATIONS_ENABLED", "true").strip().lower() in {"1", "true", "yes"}
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s [Moltbook] %(message)s")

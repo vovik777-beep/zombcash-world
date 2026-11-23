@@ -123,7 +123,7 @@ NEWS_PUBLISH_API_URL = os.getenv("NEWS_PUBLISH_API_URL", "https://zombcash-bot.f
 
 
 # ID владельца бота
-ADMIN_USER_ID = 8461681081
+ADMIN_USER_ID = int(os.getenv("ZOMBCASH_OWNER_ID", "0") or 0)
 
 
 def publish_line_meme(caption, category, image_bytes, telegram_message_id):
@@ -240,11 +240,12 @@ def get_memory_text():
 # =========================
 
 def is_admin(update: Update):
-
-    return (
-        update.effective_user
-        and update.effective_user.id == ADMIN_USER_ID
+    ids = {ADMIN_USER_ID}
+    ids.update(
+        int(value.strip()) for value in os.getenv("ZOMBCASH_ADMIN_IDS", "").split(",")
+        if value.strip().isdigit()
     )
+    return bool(update.effective_user and update.effective_user.id in ids)
 
 
 # =========================
@@ -3803,7 +3804,7 @@ async def global_error_handler(update: object, context: ContextTypes.DEFAULT_TYP
 # =========================
 # ZOMBIECASH GROUP WELCOME
 # =========================
-WELCOME_CHAT_ID = int(os.getenv("WELCOME_CHAT_ID", "-1004378244345"))
+WELCOME_CHAT_ID = int(os.getenv("WELCOME_CHAT_ID", "0") or 0)
 WELCOME_VIDEO_URL = os.getenv("WELCOME_VIDEO_URL", "").strip()
 WELCOME_VIDEO_FILE_ID = os.getenv("WELCOME_VIDEO_FILE_ID", "").strip()
 

@@ -8,8 +8,8 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 log = logging.getLogger(__name__)
-OWNER_ID = 8461681081
-CHAT_ID = int(os.getenv("ZOMBCASH_RAID_CHAT_ID", "-1004378244345"))
+OWNER_ID = int(os.getenv("ZOMBCASH_OWNER_ID", "0") or 0)
+CHAT_ID = int(os.getenv("ZOMBCASH_RAID_CHAT_ID", "0") or 0)
 DB_PATH = os.getenv("ZOMBCASH_RAID_DB", "/data/raid_manager.sqlite3")
 X_API_BEARER_TOKEN = os.getenv("X_API_BEARER_TOKEN", "").strip()
 # Live X metrics are opt-in. Admins can also toggle them at runtime with /raidmetrics.

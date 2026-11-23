@@ -8,8 +8,8 @@ from auto_post_schedule import (
 
 
 class AutoPostScheduleTests(unittest.TestCase):
-    def test_posts_are_scheduled_every_three_hours(self):
-        self.assertEqual(AUTO_POST_INTERVAL_SECONDS, 3 * 60 * 60)
+    def test_editorial_rotation_is_hourly(self):
+        self.assertEqual(AUTO_POST_INTERVAL_SECONDS, 60 * 60)
 
     def test_after_dark_gets_half_of_all_slots(self):
         names = [name for name, _style in AUTO_POST_CATEGORIES]

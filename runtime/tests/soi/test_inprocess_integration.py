@@ -1,19 +1,21 @@
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+RUNTIME = Path(__file__).resolve().parents[2]
+REPO_ROOT = RUNTIME.parent
 
 
-def test_soi_is_scheduled_inside_the_existing_telegram_bot():
-    bot = (ROOT / "bot.py").read_text(encoding="utf-8")
-    assert "from soi.runtime import run_cycle as run_soi_cycle" in bot
-    assert "application.job_queue.run_repeating(" in bot
-    assert "soi_collection_job," in bot
-    assert "SOI_ENABLED" in bot
+def test_soi_is_explicitly_disabled_without_erasing_historical_data():
+    bot = (RUNTIME / "bot.py").read_text(encoding="utf-8")
+    assert "SOI_ENABLED = False" in bot
+    assert "preserve_disabled_soi_data()" in bot
+    assert "shutil.rmtree(data_dir)" not in bot
+    assert "from soi.runtime import run_cycle as run_soi_cycle" not in bot
 
 
-def test_start_script_does_not_create_a_separate_soi_process():
-    script = (ROOT / "start.sh").read_text(encoding="utf-8")
+def test_root_launcher_keeps_soi_out_of_separate_processes():
+    script = (REPO_ROOT / "start.sh").read_text(encoding="utf-8")
     assert "soi_guard.py" not in script
     assert "SOI_PID" not in script
-    assert "python -u bot.py &" in script
+    assert 'runtime/bot.py' in script
+    assert 'runtime/news_worker.py' in script

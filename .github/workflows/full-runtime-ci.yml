@@ -39,6 +39,7 @@ jobs:
       - name: Run migrated runtime tests
         env:
           PYTHONPATH: ${{ github.workspace }}/runtime
-        run: pytest -q runtime/tests
+        working-directory: runtime
+        run: pytest -q tests
       - name: Run public publisher package tests
         run: pytest -q bot/tests

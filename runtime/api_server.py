@@ -2103,7 +2103,7 @@ async def zombie_caption(request):
 ZOMBIE_SHARE_DAILY_LIMIT = max(1, min(100, int(os.getenv("ZOMBIE_SHARE_DAILY_LIMIT", "20"))))
 ZOMBIE_SHARE_USAGE_FILE = os.path.join(DATA_DIR, "zombie_share_usage.json")
 ZOMBIE_SHARE_LOCK = asyncio.Lock()
-ZOMBIECASH_GROUP_CHAT_ID = "-1004378244345"
+ZOMBIECASH_GROUP_CHAT_ID = os.getenv("ZOMBCASH_GROUP_CHAT_ID", os.getenv("WELCOME_CHAT_ID", "")).strip()
 
 
 def _load_zombie_share_usage():
@@ -2146,8 +2146,8 @@ async def zombie_share(request):
     except Exception:
         return web.json_response({"error": "The generated image could not be read."}, status=400)
     bot_token = os.getenv("BOOST_MONITOR_BOT_TOKEN", "").strip()
-    if not bot_token:
-        log.error("Zombie group sharing disabled: BOOST_MONITOR_BOT_TOKEN is missing")
+    if not bot_token or not ZOMBIECASH_GROUP_CHAT_ID:
+        log.error("Zombie group sharing disabled: bot token or ZOMBCASH_GROUP_CHAT_ID is missing")
         return web.json_response({"error": "Group sharing is not configured. Please download the photo instead."}, status=503)
     ip = request.remote or "unknown"
     async with ZOMBIE_SHARE_LOCK:
