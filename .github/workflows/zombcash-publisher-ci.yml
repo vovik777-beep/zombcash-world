@@ -6,6 +6,11 @@ on:
     paths:
       - "bot/**"
       - ".github/workflows/zombcash-publisher-ci.yml"
+  push:
+    branches: [migration/zombcash-bot-public]
+    paths:
+      - "bot/**"
+      - ".github/workflows/zombcash-publisher-ci.yml"
   workflow_dispatch:
 
 permissions:
