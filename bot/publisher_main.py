@@ -35,6 +35,9 @@ def _load_admin_ids() -> set[int]:
 
 def build_application():
     """Build and register schedules without starting polling or publishing."""
+    environment = os.getenv("ZOMBCASH_ENV", "").strip().lower()
+    if environment != "staging":
+        raise RuntimeError("This public publisher entry point is staging-only; set ZOMBCASH_ENV=staging")
     token = _required_env("TELEGRAM_BOT_TOKEN")
     gemini_key = _required_env("GEMINI_API_KEY")
     _required_env("POLLINATIONS_API_KEY")
