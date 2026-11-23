@@ -36,6 +36,20 @@ JOB_NAME = "zombcash_auto_post_rotation"
 RETRY_DELAYS = (900, 1800, 3600)
 
 
+def load_last_auto_post_time(state_file=STATE_FILE):
+    """Read the last successful timestamp for the single shared hourly rotation."""
+    try:
+        with open(state_file, "r", encoding="utf-8") as handle:
+            state = json.load(handle)
+        value = float(state.get("last_successful_rotation_post", 0) or 0)
+        return value if value > 0 else None
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+        logging.exception("Could not read automatic-post schedule state")
+        return None
+
+
 def load_next_rotation_index(state_file=STATE_FILE):
     try:
         with open(state_file, "r", encoding="utf-8") as handle:
@@ -259,6 +273,22 @@ async def auto_post_job(context):
             lock_file.close()
 
 
-def register_hourly_publisher(application, *, initial_delay=AUTO_POST_INTERVAL_SECONDS):
-    """Explicit opt-in registration; never invoked automatically on module import."""
-    schedule_next_auto_post(application, initial_delay)
+def register_hourly_publisher(application, *, state_file=STATE_FILE):
+    """Restore the existing hourly due time; explicit opt-in, never auto-started."""
+    last_post = load_last_auto_post_time(state_file)
+    if last_post is None:
+        last_post = time.time()
+        try:
+            save_rotation_success(
+                last_post, load_next_rotation_index(state_file), "INITIALIZED",
+                state_file=state_file,
+            )
+        except OSError:
+            logging.exception("Could not initialize hourly rotation state")
+    elapsed = max(0, time.time() - last_post)
+    next_delay = max(1, AUTO_POST_INTERVAL_SECONDS - elapsed)
+    logging.info(
+        "Next ZOMBCASH hourly rotation post scheduled in %.0f seconds; next category index=%s",
+        next_delay, load_next_rotation_index(state_file),
+    )
+    schedule_next_auto_post(application, next_delay)
