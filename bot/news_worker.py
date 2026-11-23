@@ -18,13 +18,15 @@ from html.parser import HTMLParser
 import feedparser
 from telegram import Bot
 from telegram.request import HTTPXRequest
+
+from bot.publish_target import get_publish_target
 from google import genai
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-CHANNEL_ID = "@ZOMBCASH"
+CHANNEL_ID = get_publish_target()
 GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY", "").strip()
 NEWS_PUBLISH_TOKEN = os.getenv("NEWS_PUBLISH_TOKEN", "").strip()
