@@ -6,6 +6,8 @@ All credentials are read at call time from environment variables.
 """
 from __future__ import annotations
 
+from bot.publish_target import get_publish_api_url
+
 import base64
 import json
 import logging
@@ -28,15 +30,12 @@ def publish_line_meme(
 ):
     """Sync a successfully published Telegram image to the shared content queue."""
     token = (os.getenv("NEWS_PUBLISH_TOKEN", "") if token is None else token).strip()
-    api_url = (
-        os.getenv(
-            "NEWS_PUBLISH_API_URL",
-            "https://zombcash-bot.fadehost.app/api/news/published",
-        )
-        if api_url is None else api_url
-    ).strip()
+    api_url = get_publish_api_url() if api_url is None else api_url.strip()
     if not token:
         logging.info("LINE meme sync skipped: NEWS_PUBLISH_TOKEN is not configured in bot worker")
+        return False
+    if not api_url:
+        logging.warning("LINE meme sync skipped: staging NEWS_PUBLISH_API_URL is not configured")
         return False
     telegram_url = f"https://t.me/ZOMBCASH/{telegram_message_id}"
     payload = {
