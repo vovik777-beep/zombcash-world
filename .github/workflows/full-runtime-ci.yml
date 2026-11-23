@@ -42,4 +42,6 @@ jobs:
         working-directory: runtime
         run: pytest -q tests
       - name: Run public publisher package tests
-        run: pytest -q bot/tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: python -m pytest -q bot/tests
