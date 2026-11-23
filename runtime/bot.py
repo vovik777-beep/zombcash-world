@@ -118,6 +118,8 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 POLLINATIONS_API_KEY = os.getenv("POLLINATIONS_API_KEY")
+HEROINE_HUMAN_REFERENCE_URL = os.getenv("HEROINE_HUMAN_REFERENCE_URL", "").strip()
+HEROINE_UNDEAD_REFERENCE_URL = os.getenv("HEROINE_UNDEAD_REFERENCE_URL", "").strip()
 NEWS_PUBLISH_TOKEN = os.getenv("NEWS_PUBLISH_TOKEN", "").strip()
 NEWS_PUBLISH_API_URL = os.getenv("NEWS_PUBLISH_API_URL", "https://zombcash-bot.fadehost.app/api/news/published").strip()
 
@@ -2084,22 +2086,22 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
     elif style_mode == "HEROINE":
         # One recurring heroine; the scene's FORM tag controls her story state.
         scenes = [
-            "FORM=HUMAN | DIARY 01 — dark-haired heroine in fitted olive camouflage and practical tactical field gear explores an abandoned laboratory with a flashlight",
-            "FORM=HUMAN | DIARY 02 — brunette heroine in a weathered camouflage jacket, tactical vest and cargo trousers studies a survivor map at a rain-streaked checkpoint",
-            "FORM=HUMAN | DIARY 03 — dark-haired heroine in military field clothing searches a deserted metro station for medicine, listening for movement",
-            "FORM=HUMAN | DIARY 04 — brunette heroine in camouflage and fingerless gloves repairs a radio at a fortified shelter, focused and quietly confident",
-            "FORM=HUMAN | DIARY 05 — dark-haired heroine in tactical camouflage crosses a ruined hospital corridor carrying a medical field case; a green glow appears behind quarantine glass",
-            "FORM=HUMAN | DIARY 06 — brunette heroine in practical military gear pins a recovered laboratory photograph to a map wall, realizing the outbreak began closer to home",
-            "FORM=TRANSITION | DIARY 07 — the same woman studies her reflection; dark hair develops silver strands and one eye has a faint amber-red glow, while she still wears camouflage",
-            "FORM=TRANSITION | DIARY 08 — the same heroine sits alone in a shelter, half her hair turning silver-white, a subtle glow in her eyes and first delicate scars; beautiful, intelligent and troubled",
-            "FORM=TRANSITION | DIARY 09 — during a laboratory escape, the same woman has dark roots and silver strands, one natural eye and one softly glowing amber-red eye; camouflage jacket torn, biohazard pendant visible",
-            "FORM=TRANSITION | DIARY 10 — close cinematic portrait at the moment of awakening, silver spreading through dark hair, both eyes beginning to glow amber-red, biohazard goggles in her hands",
-            "FORM=UNDEAD | DIARY 11 — silver-haired heroine with vivid glowing magenta eyes and a sharp healed diagonal scar across one cheek examines a classified infection card; daring black asymmetric cropped tactical top, open distressed leather jacket and biohazard goggles on her head",
-            "FORM=UNDEAD | DIARY 12 — silver-haired heroine with luminous magenta eyes and visible fine scars across cheekbone and collarbone records a rooftop broadcast; fitted low-cut black $ZOMBCASH crop top, open leather jacket slipping off one shoulder, tactical straps and biohazard pendant",
-            "FORM=UNDEAD | DIARY 13 — same heroine, intense magenta glowing eyes and two elegant healed facial scars, searches a containment chamber wearing a daring fitted black leather bustier-style tactical top beneath an open cropped jacket, tasteful exposed shoulders and midriff",
-            "FORM=UNDEAD | DIARY 14 — silver hair loose and wild, vivid magenta eyes, a branching scar near one eye, goggles above her forehead; she moves through a flooded tunnel in a torn fitted $ZOMBCASH top, open distressed jacket and asymmetric tactical straps",
-            "FORM=UNDEAD | DIARY 15 — silver-haired heroine with intense luminous magenta eyes, clearly visible fine scars across one cheek and shoulder, biohazard goggles and pendant studies a vial in a hidden research room; fitted black cutout tactical top under an open leather jacket",
-            "FORM=UNDEAD | DIARY 16 — silver-haired heroine with hypnotic glowing magenta eyes and distinctive diagonal cheek scar stands at a rooftop signal mast; bold fitted black $ZOMBCASH crop top, open distressed leather jacket, exposed shoulders and waist, elegant tactical harness details",
+            "FORM=HUMAN | DIARY 01 — the same dark-haired heroine in fitted olive combat trousers, a close-fitting tactical field top and open cropped camouflage jacket leads a daring rooftop escape, one boot on broken concrete, fierce confident grin, wind in her hair",
+            "FORM=HUMAN | DIARY 02 — brunette heroine in a fitted dark olive tactical top, open field jacket, utility belt and fingerless gloves charges through a breached checkpoint carrying a rescue flare, fearless action-hero stance",
+            "FORM=HUMAN | DIARY 03 — dark-haired heroine in a fitted camouflage combat outfit and practical harness vaults over a barricade while pulling a survivor to safety, athletic movement and determined expression",
+            "FORM=HUMAN | DIARY 04 — confident brunette heroine in a fitted tactical crop field top under an open camouflage jacket stands on an armored vehicle scanning the ruined street, one hand on her radio, chin raised",
+            "FORM=HUMAN | DIARY 05 — heroine in a close-fitting olive tactical uniform with shaped field vest and cargo trousers kicks open a laboratory door during a rescue, dynamic low-angle cinematic action",
+            "FORM=HUMAN | DIARY 06 — dark-haired heroine in fitted combat gear and open camouflage jacket faces a hostile infected horde at a barricade, holding a bright green emergency flare, bold defiant expression",
+            "FORM=TRANSITION | DIARY 07 — same heroine in fitted camouflage field gear studies her reflection; a silver streak appears in dark hair, one iris begins glowing vivid magenta, first fine scar near her temple, stubborn defiant gaze",
+            "FORM=TRANSITION | DIARY 08 — the same woman braces herself against a shelter wall, half her hair turning silver-white, one eye glowing magenta, new delicate scars across cheekbone, torn camouflage jacket, controlled anger",
+            "FORM=TRANSITION | DIARY 09 — during a laboratory escape, same face with dark roots and silver strands, one natural eye and one bright magenta eye, fine branching scar near one eye; camouflage partly torn, biohazard pendant visible",
+            "FORM=TRANSITION | DIARY 10 — cinematic awakening moment, same woman's hair changing from dark to silver-white, both irises igniting neon magenta, distinctive cheek scar emerging, goggles in her hand, fierce half-smile",
+            "FORM=UNDEAD | DIARY 11 — canonical silver-white-haired heroine with luminous neon-magenta eyes and her distinctive diagonal cheek scar storms through a cold laboratory corridor; daring fitted black asymmetric $ZOMBCASH crop top, open distressed leather jacket, biohazard goggles on her head",
+            "FORM=UNDEAD | DIARY 12 — same silver-haired heroine, vivid magenta eyes and recognizable facial scars leads survivors across a rooftop, fitted low-cut black $ZOMBCASH top, open leather jacket, tactical harness and biohazard pendant",
+            "FORM=UNDEAD | DIARY 13 — canonical silver-haired heroine with glowing magenta eyes and two signature healed facial scars kicks open a containment-room door, structured black leather bustier-style tactical top, open cropped jacket, exposed shoulders and tasteful midriff",
+            "FORM=UNDEAD | DIARY 14 — silver hair loose and windblown, bright magenta eyes, distinctive scar beside one eye; heroine leaps across a flooded metro gap in a torn fitted $ZOMBCASH top, open distressed jacket and asymmetric tactical straps",
+            "FORM=UNDEAD | DIARY 15 — silver-haired heroine with intense magenta eyes and visible fine scars across cheek and collarbone confronts a mutated specimen, fitted black cutout tactical top, open leather jacket, goggles and biohazard pendant",
+            "FORM=UNDEAD | DIARY 16 — iconic silver-haired heroine, unmistakable magenta glowing eyes and signature cheek scar stands triumphantly atop a rooftop signal mast, bold fitted $ZOMBCASH crop top, open distressed leather jacket and tactical harness",
         ]
         visual_direction = (
             "ZOMBCASH HEROINE CHARACTER BIBLE: one iconic adult woman, age 25+, the same person and same facial identity in every image. "
@@ -2207,11 +2209,11 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
 
     if style_mode == "HEROINE":
         composition = random.choice([
-            "medium-wide environmental portrait showing the heroine actively investigating a location, face and hands readable",
-            "over-the-shoulder field-report composition with the heroine in the foreground and the discovery clearly visible",
-            "grounded three-quarter action frame, heroine moving cautiously through a believable survival environment",
-            "shelter interior scene with the heroine working at a map table, radio or recovered artifact",
-            "cinematic full-body walking shot with practical gear visible and the ruined environment telling part of the story",
+            "dynamic low-angle cinematic action-hero frame, strong confident stance, full body or three-quarter body visible, expressive face and fitted tactical silhouette readable",
+            "heroic wide action shot with the heroine in the foreground rescuing a survivor or confronting danger, dramatic environmental scale",
+            "confident three-quarter portrait, shoulders back, chin raised, fearless half-smile, wind moving her hair and jacket",
+            "cinematic full-body movement frame, heroine vaulting a barricade or striding through smoke, believable athletic anatomy",
+            "bold medium shot with the heroine taking command at a ruined-city checkpoint, direct challenging gaze and strong posture",
         ])
     elif style_mode == "HORROR":
         composition = random.choice([
@@ -2244,6 +2246,21 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "centered full-body photograph with a clean background, natural proportions, legs and feet visible, confident expression"
         ])
     chosen_scene = choose_fresh_auto_post_scene(style_mode, scenes)
+    heroine_form = ""
+    heroine_reference_url = ""
+    if style_mode == "HEROINE":
+        heroine_form = chosen_scene.split("|", 1)[0].replace("FORM=", "").strip()
+        if heroine_form == "HUMAN":
+            heroine_reference_url = HEROINE_HUMAN_REFERENCE_URL
+        elif heroine_form == "UNDEAD":
+            heroine_reference_url = HEROINE_UNDEAD_REFERENCE_URL
+        else:
+            heroine_reference_url = HEROINE_HUMAN_REFERENCE_URL or HEROINE_UNDEAD_REFERENCE_URL
+        if not heroine_reference_url:
+            logging.warning(
+                "HEROINE image reference is not configured for form=%s; using text-only generation",
+                heroine_form,
+            )
     prompt = (
         "Create a completely new original ZombieCash zombie-apocalypse image. "
         "Scene: " + chosen_scene + ". Visual direction: " + visual_direction + ". "
@@ -2293,34 +2310,67 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             attempt_payload["prompt"] += (
                 " Retry with a clearly different camera angle and simpler, more readable composition."
             )
-        request = urllib.request.Request(
-            "https://gen.pollinations.ai/v1/images/generations",
-            data=json.dumps(attempt_payload).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
-                "Content-Type": "application/json",
-                "User-Agent": "ZombieCashMemeBot/1.0",
-                "Accept": "application/json",
-            },
-            method="POST",
-        )
         try:
-            def download_image_response():
-                with urllib.request.urlopen(request, timeout=90) as response:
-                    return json.loads(response.read(10 * 1024 * 1024 + 1).decode("utf-8", errors="replace"))
+            if style_mode == "HEROINE" and heroine_reference_url:
+                # Flux Kontext uses the supplied canonical image as a real image-to-image identity reference.
+                query = urllib.parse.urlencode({
+                    "model": "black-forest-labs/flux.1-kontext-pro",
+                    "width": 1024,
+                    "height": 1024,
+                    "seed": attempt_payload["seed"],
+                    "image": heroine_reference_url,
+                })
+                image_url = (
+                    "https://gen.pollinations.ai/image/"
+                    + urllib.parse.quote(attempt_payload["prompt"], safe="")
+                    + "?" + query
+                )
+                request = urllib.request.Request(
+                    image_url,
+                    headers={
+                        "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
+                        "User-Agent": "ZombieCashMemeBot/1.0",
+                        "Accept": "image/jpeg,image/png",
+                    },
+                    method="GET",
+                )
 
-            result = await asyncio.to_thread(download_image_response)
-            image_data = result.get("data")
-            if not isinstance(image_data, list) or not image_data or not isinstance(image_data[0], dict):
-                raise ValueError("Image API returned an unexpected response structure")
-            encoded = image_data[0].get("b64_json")
-            if not isinstance(encoded, str) or not encoded or len(encoded) > 8 * 1024 * 1024:
-                raise ValueError("Image API response is missing b64_json or exceeds the 8 MB encoded limit")
-            image_bytes = base64.b64decode(encoded, validate=True)
-            if not image_bytes or len(image_bytes) > 6 * 1024 * 1024:
-                raise ValueError("Generated image is empty or exceeds the 6 MB source limit")
-            # Drop the large JSON/base64 response before Pillow allocates decode buffers.
-            del result, image_data, encoded
+                def download_image_response():
+                    with urllib.request.urlopen(request, timeout=120) as response:
+                        return response.read(10 * 1024 * 1024 + 1)
+
+                image_bytes = await asyncio.to_thread(download_image_response)
+                if not image_bytes or len(image_bytes) > 10 * 1024 * 1024:
+                    raise ValueError("Reference image generation returned empty data or exceeded 10 MB")
+            else:
+                request = urllib.request.Request(
+                    "https://gen.pollinations.ai/v1/images/generations",
+                    data=json.dumps(attempt_payload).encode("utf-8"),
+                    headers={
+                        "Authorization": f"Bearer {POLLINATIONS_API_KEY}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "ZombieCashMemeBot/1.0",
+                        "Accept": "application/json",
+                    },
+                    method="POST",
+                )
+
+                def download_image_response():
+                    with urllib.request.urlopen(request, timeout=90) as response:
+                        return json.loads(response.read(10 * 1024 * 1024 + 1).decode("utf-8", errors="replace"))
+
+                result = await asyncio.to_thread(download_image_response)
+                image_data = result.get("data")
+                if not isinstance(image_data, list) or not image_data or not isinstance(image_data[0], dict):
+                    raise ValueError("Image API returned an unexpected response structure")
+                encoded = image_data[0].get("b64_json")
+                if not isinstance(encoded, str) or not encoded or len(encoded) > 8 * 1024 * 1024:
+                    raise ValueError("Image API response is missing b64_json or exceeds the 8 MB encoded limit")
+                image_bytes = base64.b64decode(encoded, validate=True)
+                if not image_bytes or len(image_bytes) > 6 * 1024 * 1024:
+                    raise ValueError("Generated image is empty or exceeds the 6 MB source limit")
+                # Drop the large JSON/base64 response before Pillow allocates decode buffers.
+                del result, image_data, encoded
             normalized_bytes = normalize_generated_image(image_bytes)
             del image_bytes
             image = io.BytesIO(normalized_bytes)
