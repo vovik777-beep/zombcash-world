@@ -32,6 +32,18 @@ class PublishingRuntimeTests(unittest.TestCase):
         self.assertEqual(website.call_args.args[0], application)
         self.assertTrue(callable(website.call_args.args[1]))
 
+    def test_host_can_keep_its_existing_admin_command_without_duplicate_registration(self):
+        queue = FakeJobQueue()
+        handlers = []
+        application = SimpleNamespace(bot_data={}, job_queue=queue, add_handler=handlers.append)
+        with patch("bot.publisher_runtime.register_hourly_publisher"), \\
+             patch("bot.publisher_runtime.register_website_showcase"):
+            register_publishing_schedules(
+                application, object(), register_admin_command=False
+            )
+        self.assertEqual(handlers, [])
+        self.assertNotIn("is_admin", application.bot_data)
+
     def test_missing_gemini_client_fails_closed(self):
         application = SimpleNamespace(bot_data={}, job_queue=FakeJobQueue(), add_handler=lambda handler: None)
         with self.assertRaisesRegex(ValueError, "gemini_client"):
