@@ -1786,7 +1786,7 @@ async def handle_message(
 AUTO_POST_HISTORY_FILE = "/data/auto_post_history.json"
 
 AUTO_POST_PENDING_DIR = "/data/auto_post_pending_images"
-AUTO_POST_PENDING_STYLES = {"CARTOON", "PHOTO_PINUP", "HORROR"}
+AUTO_POST_PENDING_STYLES = {"CARTOON", "PHOTO_PINUP", "HORROR", "HEROINE"}
 
 
 def _auto_post_pending_paths(style_mode):
@@ -2080,6 +2080,48 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "beautiful animated feature-film concept art, rich color scripting and playful visual storytelling",
         ]
 
+    elif style_mode == "HEROINE":
+        # HEROINE'S SURVIVAL DIARY: one recurring field anchor across connected story moments.
+        scenes = [
+            "DIARY ENTRY 01 — the heroine broadcasts a short field report from a rain-soaked rooftop above a powerless city, emergency lights blinking far below",
+            "DIARY ENTRY 02 — she slips into an abandoned underground laboratory, examining a cracked specimen case while her flashlight catches movement behind frosted glass",
+            "DIARY ENTRY 03 — she finds a survivor's handwritten map pinned inside a deserted metro station and notices fresh infected footprints leading away",
+            "DIARY ENTRY 04 — a silent infected ambush begins in a flooded service tunnel; she backs toward the emergency ladder with her flashlight raised",
+            "DIARY ENTRY 05 — she searches a ruined medical archive for a missing research drive, dust and paper drifting through a narrow beam of cold light",
+            "DIARY ENTRY 06 — between expeditions she rests in a fortified shelter, repairing a radio beside a small lantern and a wall of hand-marked maps",
+            "DIARY ENTRY 07 — she meets two exhausted adult survivors at a barricaded checkpoint and cautiously exchanges supplies beneath a broken warning sign",
+            "DIARY ENTRY 08 — she discovers an old containment chamber standing open, its warning lights dead and a huge shadow visible behind the glass",
+            "DIARY ENTRY 09 — she crosses a deserted railway platform at blue dawn, carrying a recovered field case while distant infected silhouettes emerge through fog",
+            "DIARY ENTRY 10 — she climbs the stairs of a ruined observatory to retrieve an emergency transmitter, storm clouds gathering over the skyline",
+            "DIARY ENTRY 11 — she finds a hidden cache of medicine and batteries beneath a collapsed research outpost, checking the corridor before taking it",
+            "DIARY ENTRY 12 — after a dangerous expedition she records a voice note in the shelter, exhausted but composed, with rain tapping against the boarded window",
+            "DIARY ENTRY 13 — she follows a trail of strange green laboratory residue through a botanical research wing overtaken by dark vines",
+            "DIARY ENTRY 14 — she helps another adult survivor escape through a maintenance hatch while infected shadows approach from the corridor",
+            "DIARY ENTRY 15 — she stands at a rooftop signal mast at night, trying to contact other survivor enclaves across the dead city",
+            "DIARY ENTRY 16 — she studies a recovered artifact on a workbench in the shelter, comparing its markings with notes from the abandoned lab",
+        ]
+        visual_direction = (
+            "A recurring ZOMBCASH FIELD ANCHOR in a connected cinematic survival diary. "
+            "Continuity lock: portray the same unmistakably adult woman, age 27+, in every image: "
+            "long dark raven hair with one subtle silver streak at the left temple, clear jade-green eyes, "
+            "a small healed scar through the right eyebrow, composed alert expression and realistic natural features. "
+            "Her signature field outfit is a charcoal-grey weathered tactical jacket over a fitted black protective field vest, "
+            "muted jade scarf, practical utility belt, dark cargo trousers, fingerless gloves and worn combat boots. "
+            "Keep her face, hair, eye color, scar and core outfit recognizably consistent; vary only practical layers or damage "
+            "when the diary scene calls for it. She is resourceful, observant and courageous, not a generic fashion model. "
+            "Photorealistic live-action survival-thriller cinematography, grounded practical locations, natural anatomy, "
+            "credible survival equipment and expressive storytelling. Palette: charcoal, cold grey, muted jade, steel blue "
+            "and restrained warm amber; use red only as a small warning-light accent. "
+            "Show a believable action or discovery, not a static pin-up pose. Keep all intimate areas fully covered. "
+            "No lingerie, nudity, sexualization, anime, cartoon, plastic CGI, text, logos or watermarks."
+        )
+        styles = [
+            "photorealistic prestige survival-thriller film still, ARRI Alexa 65, subtle film grain",
+            "grounded post-apocalyptic documentary cinematography, natural overcast light and realistic materials",
+            "high-end live-action outbreak drama, 50mm lens, expressive natural face and atmospheric depth",
+            "cinematic field-report photography, practical flashlight lighting and restrained cold color grade",
+            "photorealistic survival-horror adventure frame, realistic weather, fabric and environmental detail",
+        ]
     else:
         # UNDEAD AFTER DARK: photorealistic, sensual full-body gothic lingerie fashion portraits.
         scenes = [
@@ -2153,7 +2195,15 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
             "Look 14 — ivory lace bra and matching high-cut panties with opaque lining, sheer stockings and a loose silk robe"
         ])
 
-    if style_mode == "HORROR":
+    if style_mode == "HEROINE":
+        composition = random.choice([
+            "medium-wide environmental portrait showing the heroine actively investigating a location, face and hands readable",
+            "over-the-shoulder field-report composition with the heroine in the foreground and the discovery clearly visible",
+            "grounded three-quarter action frame, heroine moving cautiously through a believable survival environment",
+            "shelter interior scene with the heroine working at a map table, radio or recovered artifact",
+            "cinematic full-body walking shot with practical gear visible and the ruined environment telling part of the story",
+        ])
+    elif style_mode == "HORROR":
         composition = random.choice([
             "extreme close-up creature reveal with a second horror detail reflected in glass behind it",
             "wide establishing shot of an abandoned outbreak site, tiny human silhouette dwarfed by the environment",
@@ -2202,6 +2252,15 @@ async def _generate_zombiecash_image_unlocked(style_mode="HORROR"):
         "ZombieCash branding must never be misspelled. If readable lettering appears on the garment, it must be exactly '$ZOMBCASH' in one clean, straight, high-contrast line, spelled Z-O-M-B-C-A-S-H with the dollar sign before it. No extra words or fake lettering. If exact text is uncertain, leave the garment blank rather than generating gibberish. "
         "Keep the horror-creature look exclusive to NIGHTMARE, but allow UNDEAD AFTER DARK to occasionally use a more visibly undead, haunting vampire-zombie fashion look as one randomly selected visual option. Most posts remain glamorous gothic fashion; some may feature the original eerie undead styling with pale skin, shadowed eyes and subtle corpse-like makeup. Fuse East Asian gothic fashion with tasteful Norse/Viking details such as Japanese temple architecture, pagoda bridges, shoji screens, subtle runes, raven motifs, Nordic knotwork and aged bronze. Keep the heroine visually compelling, with expressive face and elegant styling. Avoid graphic gore or extreme disfigurement. Keep the heroine large enough for her face and outfit to read clearly. Prioritize natural pose, visible face, simple stable anatomy and realistic proportions. No rear-view pose, no twisted torso, no distorted anatomy, no anime, cartoon, CGI-plastic skin, watermarks or unrelated logos."
     )
+    if style_mode == "HEROINE":
+        prompt += (
+            " HEROINE DIARY MODE OVERRIDE: this is a grounded survival-story frame, not a glamour, lingerie or pin-up image. "
+            "Ignore any unrelated fashion-editorial wardrobe suggestions above. Preserve the recurring field anchor's exact "
+            "face identity, raven hair with the single silver streak at the left temple, jade-green eyes, right-eyebrow scar "
+            "and charcoal tactical outfit. The scene must read as one specific diary episode with a clear action or discovery. "
+            "Use cold grey and muted jade cinematography, restrained red accents, realistic survival gear and fully covered clothing. "
+            "No text or logo unless the image model can render the exact '$ZOMBCASH' mark cleanly; otherwise leave surfaces unlettered."
+        )
     seed = random.randint(1, 2_000_000_000)
     payload = {
         "model": "flux",
@@ -2638,6 +2697,10 @@ async def test_horror_image_command(update: Update, context: ContextTypes.DEFAUL
     await test_category_image_command(update, context, "HORROR", "NIGHTMARE & HORROR")
 
 
+async def test_heroine_image_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await test_category_image_command(update, context, "HEROINE", "HEROINE'S SURVIVAL DIARY")
+
+
 async def create_mutant():
     scenes = [
         "a zombie crypto trader with glowing green eyes",
@@ -3046,6 +3109,14 @@ async def _auto_post_job_once(context):
                 "Make the line elegant, clever, short and genuinely funny; a punchline, not a slogan. Never explain the joke or reuse a recent setup. "
                 "Avoid generic 'market is dead' wording."
             )
+        elif image_style == "HEROINE":
+            caption_instruction = (
+                "Write a first-person field-diary caption in the heroine's established voice: observant, resourceful, "
+                "dryly witty under pressure and emotionally restrained. Tie it to the exact scene and one concrete event, "
+                "clue, danger, artifact, shelter moment or survivor encounter. Make it feel like a real entry in an ongoing "
+                "survival journal, with a small hook that makes the next entry feel possible. One or two concise sentences; "
+                "never generic motivational copy, flirtation or a beauty compliment."
+            )
         elif image_style == "PHOTO_PINUP":
             caption_instruction = (
                 "Write a witty, confident caption grounded in the exact scene and personality of this adult gothic undead heroine. "
@@ -3082,11 +3153,13 @@ async def _auto_post_job_once(context):
             "HORROR": "🩸 <b>NIGHTMARE & HORROR</b>",
             "CARTOON": "😂 <b>ZOMBIECASH MEMES</b>",
             "PHOTO_PINUP": "🌙 <b>UNDEAD AFTER DARK</b>",
+            "HEROINE": "📓 <b>HEROINE'S SURVIVAL DIARY</b>",
         }[image_style]
         unique_tag = {
             "HORROR": "#ZombieCashHorror",
             "CARTOON": "#ZombieCashMeme",
             "PHOTO_PINUP": "#ZombieCashAfterDark",
+            "HEROINE": "#ZombieCashDiary",
         }[image_style]
         footer_lines = [
             "",
@@ -3135,6 +3208,7 @@ async def _auto_post_job_once(context):
                 "HORROR": "#ZombieCashHorror",
                 "CARTOON": "#ZombieCashMeme",
                 "PHOTO_PINUP": "#ZombieCashAfterDark",
+                "HEROINE": "#ZombieCashDiary",
             }[image_style]
             bluesky_tags = [
                 "#ZombieCash", "#Solana", "#Memecoin", "#Crypto", bluesky_category_tag
@@ -4032,6 +4106,7 @@ def main():
     application.add_handler(CommandHandler("delete_channel_post", delete_channel_post_command))
     application.add_handler(CommandHandler("test_afterdark", test_afterdark_image_command))
     application.add_handler(CommandHandler("test_horror", test_horror_image_command))
+    application.add_handler(CommandHandler("test_heroine", test_heroine_image_command))
     application.add_handler(CommandHandler("tgdiag", telegram_diagnostic_command))
 
     application.add_handler(
