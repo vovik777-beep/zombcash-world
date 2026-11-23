@@ -273,8 +273,9 @@ async def auto_post_job(context):
             lock_file.close()
 
 
-def register_hourly_publisher(application, *, state_file=STATE_FILE):
+def register_hourly_publisher(application, *, state_file=None):
     """Restore the existing hourly due time; explicit opt-in, never auto-started."""
+    state_file = STATE_FILE if state_file is None else state_file
     last_post = load_last_auto_post_time(state_file)
     if last_post is None:
         last_post = time.time()
