@@ -128,6 +128,7 @@ Before a separately approved cutover, configure the following environment variab
 - `NEWS_PUBLISH_TOKEN` — token for LINE / website queue synchronization; without it, that mirror is skipped.
 - `NEWS_PUBLISH_API_URL` — news worker website endpoint; defaults to the existing FadeHost endpoint.
 - `SITE_PROMO_INTERVAL_SECONDS` — website spotlight interval; defaults to 10800 seconds and is clamped to at least 900 seconds.
+- `SITE_PROMO_STATE_FILE` — optional persistent path for website spotlight rotation state; recommended value on the hosting volume: `/data/site_promo_state.json`.
 - `GEMINI_QUOTA_COOLDOWN_SECONDS` — Gemini quota fallback cooldown; defaults to 21600 seconds and is clamped to at least 300 seconds.
 - `ZOMBCASH_AUTO_POST_STATE_FILE`, `ZOMBCASH_AUTO_POST_LOCK_FILE`, `ZOMBCASH_AUTO_POST_PENDING_DIR` — optional persistent paths for hourly rotation state, its process lock, and pending image recovery.
 
@@ -139,7 +140,7 @@ Run the RSS worker as a separate service with `python -m bot.news_worker`. It re
 
 1. Use a staging Telegram bot and a private test channel, never `@ZOMBCASH`, for any end-to-end delivery test.
 2. Keep the hourly publisher and RSS worker as separate processes; do not start a second production scheduler.
-3. Mount persistent storage for `/data/auto_post_state.json`, `/data/auto_post_pending_images`, `/data/auto_post_rotation.lock`, and the news worker's SQLite / JSON state.
+3. Mount persistent storage for `/data/auto_post_state.json`, `/data/auto_post_pending_images`, `/data/auto_post_rotation.lock`, `/data/site_promo_state.json` (via `SITE_PROMO_STATE_FILE`), and the news worker's SQLite / JSON state.
 4. Confirm that process restart restores the remaining hourly and three-hour delays instead of resetting either cadence.
 5. Test `/bskycheck` with an administrator account only; it authenticates and must not publish.
 6. Do not copy production secrets or live state into this public repository. Do not switch production until the user explicitly approves it.
