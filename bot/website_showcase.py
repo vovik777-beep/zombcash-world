@@ -12,7 +12,20 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from bot.publish_target import get_publish_target
 
 INTERVAL = max(900, int(os.getenv("SITE_PROMO_INTERVAL_SECONDS", "10800")))
-STATE = os.getenv("SITE_PROMO_STATE_FILE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "site_promo_state.json"))
+
+
+def resolve_state_file(configured="", *, working_directory=None):
+    """Prefer the existing app-root state file when this package is installed separately."""
+    if configured:
+        return configured
+    working_directory = working_directory or os.getcwd()
+    runtime_file = os.path.join(working_directory, "site_promo_state.json")
+    if os.path.isfile(runtime_file):
+        return runtime_file
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "site_promo_state.json")
+
+
+STATE = resolve_state_file(os.getenv("SITE_PROMO_STATE_FILE", "").strip())
 HOME = "https://zombcash.github.io/"
 PAGES = [
  ("home","ZOMBIECASH HQ",HOME,"The official project hub: token identity, ecosystem navigation, project updates, community links and access to the tools.","Show newcomers where the whole ZombieCash ecosystem starts."),
