@@ -3,6 +3,7 @@ import os
 
 
 PRODUCTION_CHAT_ID = "@ZOMBCASH"
+PRODUCTION_NEWS_API_URL = "https://zombcash-bot.fadehost.app/api/news/published"
 
 
 def get_publish_target():
@@ -20,3 +21,12 @@ def get_publish_target():
         return configured_target
 
     return configured_target or PRODUCTION_CHAT_ID
+
+
+def get_publish_api_url():
+    """Return the API endpoint; staging never inherits the production endpoint."""
+    environment = os.getenv("ZOMBCASH_ENV", "production").strip().lower()
+    configured_url = os.getenv("NEWS_PUBLISH_API_URL", "").strip()
+    if environment in {"staging", "test"}:
+        return configured_url or None
+    return configured_url or PRODUCTION_NEWS_API_URL
