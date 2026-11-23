@@ -101,5 +101,34 @@ class RestartRecoveryTests(unittest.TestCase):
             self.assertFalse(app.bot_data.get("publisher_started", False))
 
 
+    def test_real_telegram_application_bootstrap_registers_jobs_without_starting(self):
+        from telegram.ext import Application
+
+        now = 1_800_000_000.0
+        with tempfile.TemporaryDirectory() as directory:
+            hourly_state = Path(directory) / "auto_post_state.json"
+            website_state = Path(directory) / "site_promo_state.json"
+            application = Application.builder().token(
+                "123456:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghi"
+            ).build()
+            try:
+                with patch("bot.hourly_publisher.STATE_FILE", str(hourly_state)), \\
+                     patch("bot.hourly_publisher.time.time", return_value=now), \\
+                     patch("bot.website_showcase.STATE", str(website_state)), \\
+                     patch("bot.website_showcase.time.time", return_value=now):
+                    register_publishing_schedules(
+                        application, object(), lambda update: True
+                    )
+
+                jobs = {job.name for job in application.job_queue.jobs()}
+                self.assertIn("zombcash_auto_post_rotation", jobs)
+                self.assertIn("zombcash_website_showcase", jobs)
+                self.assertFalse(application.running)
+                self.assertEqual(len(application.handlers[0]), 1)
+            finally:
+                for job in application.job_queue.jobs():
+                    job.schedule_removal()
+
+
 if __name__ == "__main__":
     unittest.main()
