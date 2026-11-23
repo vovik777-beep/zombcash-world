@@ -55,12 +55,14 @@ class TvApiTests(unittest.TestCase):
         request = Mock()
         request.headers = {"Authorization": "Bearer signed.session"}
         os.environ["ZOMBCASH_ADMIN_IDS"] = "111,222"
+        os.environ["ZOMBCASH_OWNER_ID"] = "999"
         try:
             self.assertTrue(_is_admin(request, lambda _request: "222"))
-            self.assertTrue(_is_admin(request, lambda _request: "8461681081"))
+            self.assertTrue(_is_admin(request, lambda _request: "999"))
             self.assertFalse(_is_admin(request, lambda _request: "333"))
         finally:
             os.environ.pop("ZOMBCASH_ADMIN_IDS", None)
+            os.environ.pop("ZOMBCASH_OWNER_ID", None)
 
     def test_json_admin_token_is_rejected_by_route_contract(self):
         # The route explicitly rejects admin_token in the submitted JSON object.
@@ -71,13 +73,15 @@ class TvUploadRouteTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.app = web.Application(client_max_size=251 * 1024 * 1024)
-        register_tv_routes(self.app, self.tmp.name, lambda _request: "8461681081")
+        os.environ["ZOMBCASH_ADMIN_IDS"] = "123456789"
+        register_tv_routes(self.app, self.tmp.name, lambda _request: "123456789")
         self.client = TestClient(TestServer(self.app))
         await self.client.start_server()
         _rate_events.clear()
 
     async def asyncTearDown(self):
         await self.client.close()
+        os.environ.pop("ZOMBCASH_ADMIN_IDS", None)
         self.tmp.cleanup()
 
     async def test_admin_upload_publishes_episode_and_streams_ranges(self):
