@@ -36,8 +36,7 @@ class PublishingRuntimeTests(unittest.TestCase):
         queue = FakeJobQueue()
         handlers = []
         application = SimpleNamespace(bot_data={}, job_queue=queue, add_handler=handlers.append)
-        with patch("bot.publisher_runtime.register_hourly_publisher"), \\
-             patch("bot.publisher_runtime.register_website_showcase"):
+        with patch("bot.publisher_runtime.register_hourly_publisher"), patch("bot.publisher_runtime.register_website_showcase"):
             register_publishing_schedules(
                 application, object(), register_admin_command=False
             )
