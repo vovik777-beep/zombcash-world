@@ -5,10 +5,10 @@ Nothing is started merely by importing this module.
 """
 from __future__ import annotations
 
-from bot.bluesky_admin import register_bluesky_admin_command
-from bot.caption_generator import ask_gemini
-from bot.hourly_publisher import register_hourly_publisher
-from bot.website_showcase import register_website_showcase
+from .bluesky_admin import register_bluesky_admin_command
+from .caption_generator import ask_gemini
+from .hourly_publisher import register_hourly_publisher
+from .website_showcase import register_website_showcase
 
 
 def register_publishing_schedules(application, gemini_client, is_admin_fn):
