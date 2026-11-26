@@ -3404,18 +3404,24 @@ async def _auto_post_job_once(context):
             # Remove optional metadata only; never truncate the generated caption.
             if not _bluesky_text_fits(bluesky_text) and ca:
                 bluesky_parts.remove("CA: " + ca)
-                bluesky_text = "\\n\\n".join(bluesky_parts)
+                bluesky_text = "\n\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text):
                 bluesky_parts[1] = "$ZOMBCASH"
-                bluesky_text = "\\n\\n".join(bluesky_parts)
+                bluesky_text = "\n\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text) and len(bluesky_parts) > 2 and bluesky_parts[2].startswith("#"):
                 bluesky_parts.pop(2)
-                bluesky_text = "\\n\\n".join(bluesky_parts)
+                bluesky_text = "\n\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text):
                 bluesky_parts.pop()
-                bluesky_text = "\\n\\n".join(bluesky_parts)
+                bluesky_text = "\n\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text):
-                raise ValueError("Caption itself exceeds Bluesky limit; not truncated.")
+                # Do not let an overlong caption abort Bluesky delivery after Telegram succeeded.
+                caption = bluesky_parts[0]
+                bluesky_parts[0] = caption[:120].rstrip() + ("…" if len(caption) > 120 else "")
+                bluesky_text = "\n\n".join(bluesky_parts)
+                if not _bluesky_text_fits(bluesky_text):
+                    bluesky_text = "\n\n".join([bluesky_parts[0][:80].rstrip(), "$ZOMBCASH", "#ZombieCash", "https://zombcash.github.io/"])
+                logging.warning("BLUESKY CAPTION SHORTENED: category=%s original_chars=%s", series, len(caption))
             try:
                 bluesky_result = await asyncio.to_thread(
                     publish_bluesky_post, bluesky_text, image_payload,
