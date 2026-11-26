@@ -3329,7 +3329,12 @@ async def _auto_post_job_once(context):
         if telegram_url:
             footer_lines.append(f"💬 <a href=\"{html.escape(telegram_url, quote=True)}\">Telegram</a>")
 
-        safe_caption = html.escape((answer or "").strip()) or "The dead market has a new nightmare."
+        caption_text = (answer or "").strip() or "The dead market has a new nightmare."
+        if image_style == "HEROINE":
+            caption_text = "📓 <b>FIELD NOTE:</b> " + html.escape(caption_text)
+        else:
+            caption_text = html.escape(caption_text)
+        safe_caption = caption_text
         post_text = (style_heading + "\n\n" + safe_caption + "\n\n" + unique_tag + "\n" + "\n".join(footer_lines))[:1024]
 
         try:
@@ -4417,6 +4422,13 @@ def main():
 
     # SOI has been fully disabled pending a redesign. No SOI jobs are registered.
     logging.warning("SOI STATUS: DISABLED — awaiting full redesign; no collection or snapshot jobs scheduled")
+
+    # Resume persisted Bluesky delivery retries after process restart.
+    if load_bluesky_retry_queue():
+        application.job_queue.run_once(
+            bluesky_retry_job, when=30, name="zombcash_bluesky_retry"
+        )
+        logging.warning("BLUESKY RETRY QUEUE restored on startup")
 
     # -1 means retry bootstrap indefinitely on transient network failures.
     application.run_polling(
