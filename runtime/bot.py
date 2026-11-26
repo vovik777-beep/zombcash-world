@@ -2863,6 +2863,15 @@ def _bluesky_text_fits(value):
     return _bluesky_grapheme_count(value) <= 300 and len(value.encode("utf-8")) <= 3000
 
 
+def _bluesky_safe_error(exc):
+    """Return a safe diagnostic without exposing request headers, passwords or tokens."""
+    if isinstance(exc, urllib.error.HTTPError):
+        return "HTTP %s (%s)" % (exc.code, exc.reason)
+    if isinstance(exc, urllib.error.URLError):
+        return "network error (%s)" % type(exc.reason).__name__
+    return "%s: %s" % (type(exc).__name__, str(exc)[:250])
+
+
 def publish_bluesky_post(text, image_bytes=None, image_alt="ZombieCash community artwork"):
     """Publish one official post to Bluesky using a dedicated app password."""
     handle = os.getenv("BLUESKY_HANDLE", "zombcash.bsky.social").strip()
@@ -2879,8 +2888,12 @@ def publish_bluesky_post(text, image_bytes=None, image_alt="ZombieCash community
         headers=headers,
         method="POST",
     )
-    with urllib.request.urlopen(session_request, timeout=25) as response:
-        session = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(session_request, timeout=25) as response:
+            session = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        logging.error("BLUESKY AUTH FAILED: handle=%s details=%s", handle, _bluesky_safe_error(exc))
+        raise RuntimeError("Bluesky authentication failed") from exc
     access_jwt = session.get("accessJwt")
     did = session.get("did")
     if not access_jwt or not did:
@@ -2967,7 +2980,11 @@ def publish_bluesky_post(text, image_bytes=None, image_alt="ZombieCash community
             }],
         }
     except Exception as exc:
-        logging.error("Bluesky native image upload failed; post cancelled (%s)", type(exc).__name__)
+        logging.error(
+            "BLUESKY IMAGE UPLOAD FAILED: input_bytes=%s stage=image_processing_or_blob_upload details=%s",
+            len(image_bytes) if image_bytes else 0,
+            _bluesky_safe_error(exc),
+        )
         raise RuntimeError("Bluesky post cancelled because the image could not be attached") from exc
 
     create_payload = {
@@ -2981,8 +2998,12 @@ def publish_bluesky_post(text, image_bytes=None, image_alt="ZombieCash community
         headers={**auth_headers, "Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(create_request, timeout=30) as response:
-        created = json.loads(response.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(create_request, timeout=30) as response:
+            created = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        logging.error("BLUESKY CREATE RECORD FAILED: details=%s", _bluesky_safe_error(exc))
+        raise RuntimeError("Bluesky createRecord failed") from exc
     uri = created.get("uri", "")
     if not uri:
         raise RuntimeError("Bluesky did not return a post URI")
@@ -3316,15 +3337,25 @@ async def _auto_post_job_once(context):
                     "even after removing all hashtags; full caption preserved, post skipped."
                 )
             try:
-                await asyncio.to_thread(
+                bluesky_result = await asyncio.to_thread(
                     publish_bluesky_post,
                     bluesky_text,
                     image_payload,
                     "ZombieCash " + image_style.lower() + " artwork: " + bluesky_caption[:120],
                 )
+                if bluesky_result is True:
+                    logging.info("BLUESKY SUCCESS: category=%s style=%s", series, image_style)
+                else:
+                    logging.error(
+                        "BLUESKY NOT PUBLISHED: category=%s style=%s reason=publisher_returned_false",
+                        series, image_style,
+                    )
             except Exception as bluesky_error:
-                # A Bluesky outage must never cancel the successful Telegram post or rotation.
-                logging.warning("Bluesky cross-post failed (%s)", type(bluesky_error).__name__)
+                # Never cancel Telegram delivery or rotation because Bluesky failed.
+                logging.exception(
+                    "BLUESKY FAILURE: category=%s style=%s error_type=%s",
+                    series, image_style, type(bluesky_error).__name__,
+                )
             logging.info("AUTO POST: rotation_index=%s series=%s style=%s published to @ZOMBCASH",
                          rotation_index, series, image_style)
             image.close()
