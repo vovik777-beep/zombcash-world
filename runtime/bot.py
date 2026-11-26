@@ -3149,6 +3149,11 @@ def enqueue_bluesky_retry(text, image_bytes, alt_text, category, style):
     save_bluesky_retry_queue(queue)
     logging.warning("BLUESKY RETRY QUEUED: category=%s style=%s queue_size=%s", category, style, len(queue))
 
+def schedule_bluesky_retry(application, delay):
+    for job in application.job_queue.get_jobs_by_name("zombcash_bluesky_retry"):
+        job.schedule_removal()
+    application.job_queue.run_once(bluesky_retry_job, when=max(1, delay), name="zombcash_bluesky_retry")
+
 async def bluesky_retry_job(context):
     queue = load_bluesky_retry_queue()
     if not queue:
@@ -3177,7 +3182,7 @@ async def bluesky_retry_job(context):
                             item.get("category"), item.get("style"), attempt, type(exc).__name__)
     save_bluesky_retry_queue(remaining)
     if remaining and next_delay:
-        context.application.job_queue.run_once(bluesky_retry_job, when=next_delay, name="zombcash_bluesky_retry")
+        schedule_bluesky_retry(context.application, next_delay)
 
 def schedule_next_auto_post(application, delay=AUTO_POST_INTERVAL, series="rotation", image_style=None):
     """Keep only one queued automatic editorial post."""
@@ -3407,7 +3412,7 @@ async def _auto_post_job_once(context):
                 bluesky_parts.pop(2)
                 bluesky_text = "\\n\\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text):
-                bluesky_parts[-1] = "https://zombcash.github.io/"
+                bluesky_parts.pop()
                 bluesky_text = "\\n\\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text):
                 raise ValueError("Caption itself exceeds Bluesky limit; not truncated.")
@@ -3428,10 +3433,7 @@ async def _auto_post_job_once(context):
                         "ZombieCash " + image_style.lower() + " artwork: " + bluesky_caption[:120],
                         series, image_style,
                     )
-                    context.application.job_queue.run_once(
-                        bluesky_retry_job, when=BLUESKY_RETRY_DELAYS[0],
-                        name="zombcash_bluesky_retry",
-                    )
+                    schedule_bluesky_retry(context.application, BLUESKY_RETRY_DELAYS[0])
                 except Exception:
                     logging.exception("Could not persist Bluesky retry queue item")
             logging.info("AUTO POST: rotation_index=%s series=%s style=%s published to @ZOMBCASH",
