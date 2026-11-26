@@ -3122,6 +3122,63 @@ def save_rotation_success(timestamp, next_index, image_style):
     os.replace(temp_file, AUTO_POST_STATE_FILE)
 
 
+BLUESKY_RETRY_FILE = "/data/bluesky_retry_queue.json"
+BLUESKY_RETRY_DELAYS = (900, 1800, 3600, 7200)
+
+def load_bluesky_retry_queue():
+    try:
+        with open(BLUESKY_RETRY_FILE, "r", encoding="utf-8") as file:
+            data = json.load(file)
+        return data if isinstance(data, list) else []
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        return []
+
+def save_bluesky_retry_queue(queue):
+    temp = BLUESKY_RETRY_FILE + ".tmp"
+    with open(temp, "w", encoding="utf-8") as file:
+        json.dump(queue, file, ensure_ascii=False)
+        file.flush()
+        os.fsync(file.fileno())
+    os.replace(temp, BLUESKY_RETRY_FILE)
+
+def enqueue_bluesky_retry(text, image_bytes, alt_text, category, style):
+    queue = load_bluesky_retry_queue()
+    queue.append({"text": text, "image": base64.b64encode(image_bytes).decode("ascii"),
+                  "alt": alt_text, "category": category, "style": style, "attempt": 0,
+                  "created_at": time.time()})
+    save_bluesky_retry_queue(queue)
+    logging.warning("BLUESKY RETRY QUEUED: category=%s style=%s queue_size=%s", category, style, len(queue))
+
+async def bluesky_retry_job(context):
+    queue = load_bluesky_retry_queue()
+    if not queue:
+        return
+    remaining = []
+    next_delay = None
+    for item in queue:
+        try:
+            payload = base64.b64decode(item.get("image", ""), validate=True)
+            ok = await asyncio.to_thread(publish_bluesky_post, item["text"], payload, item.get("alt", "ZombieCash artwork"))
+            if ok:
+                logging.info("BLUESKY RETRY SUCCESS: category=%s style=%s", item.get("category"), item.get("style"))
+                continue
+            raise RuntimeError("publisher returned false")
+        except Exception as exc:
+            attempt = int(item.get("attempt", 0)) + 1
+            item["attempt"] = attempt
+            if attempt >= len(BLUESKY_RETRY_DELAYS):
+                logging.error("BLUESKY RETRY EXHAUSTED: category=%s style=%s attempts=%s error=%s",
+                              item.get("category"), item.get("style"), attempt, type(exc).__name__)
+                continue
+            remaining.append(item)
+            delay = BLUESKY_RETRY_DELAYS[attempt-1]
+            next_delay = delay if next_delay is None else min(next_delay, delay)
+            logging.warning("BLUESKY RETRY FAILED: category=%s style=%s attempt=%s error=%s",
+                            item.get("category"), item.get("style"), attempt, type(exc).__name__)
+    save_bluesky_retry_queue(remaining)
+    if remaining and next_delay:
+        context.application.job_queue.run_once(bluesky_retry_job, when=next_delay, name="zombcash_bluesky_retry")
+
 def schedule_next_auto_post(application, delay=AUTO_POST_INTERVAL, series="rotation", image_style=None):
     """Keep only one queued automatic editorial post."""
     for job in application.job_queue.get_jobs_by_name("zombcash_auto_post_rotation"):
@@ -3208,11 +3265,12 @@ async def _auto_post_job_once(context):
             )
         elif image_style == "HEROINE":
             caption_instruction = (
-                "Write a first-person field-diary caption in the heroine's established voice: observant, resourceful, "
-                "dryly witty under pressure and emotionally restrained. Tie it to the exact scene and one concrete event, "
-                "clue, danger, artifact, shelter moment or survivor encounter. Make it feel like a real entry in an ongoing "
-                "survival journal, with a small hook that makes the next entry feel possible. One or two concise sentences; "
-                "never generic motivational copy, flirtation or a beauty compliment."
+                "Write an authentic first-person survival diary entry, not an advertisement. Voice: observant, tactical, "
+                "dry wit, emotionally restrained, capable and human. Refer to one specific visual detail from this scene; "
+                "describe what she did, what changed, or what she discovered. Add a subtle unresolved detail as a hook. "
+                "Vary the opening; do not always start with I or Day. Keep it to 1-2 short sentences. "
+                "No slogans, generic motivation, beauty commentary, flirting, fake token claims, or repetitive catchphrases. "
+                "Make this entry distinct from previous diary posts."
             )
         elif image_style == "PHOTO_PINUP":
             caption_instruction = (
@@ -3301,6 +3359,8 @@ async def _auto_post_job_once(context):
                 # LINE sync must never cancel an already successful Telegram post.
                 logging.warning("LINE meme sync failed (%s)", type(line_meme_error).__name__)
             bluesky_caption = (answer or "The survivors are still broadcasting.").strip()
+            if image_style == "HEROINE" and not bluesky_caption.startswith("📓"):
+                bluesky_caption = "📓 SURVIVAL DIARY — " + bluesky_caption
             bluesky_category_tag = {
                 "HORROR": "#ZombieCashHorror",
                 "CARTOON": "#ZombieCashMeme",
@@ -3331,31 +3391,44 @@ async def _auto_post_job_once(context):
                     bluesky_parts.pop(2)
                 bluesky_text = "\n\n".join(bluesky_parts)
 
+            # Remove optional metadata only; never truncate the generated caption.
+            if not _bluesky_text_fits(bluesky_text) and ca:
+                bluesky_parts.remove("CA: " + ca)
+                bluesky_text = "\\n\\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text):
-                raise ValueError(
-                    "Bluesky post metadata and full caption exceed the platform limit "
-                    "even after removing all hashtags; full caption preserved, post skipped."
-                )
+                bluesky_parts[1] = "$ZOMBCASH"
+                bluesky_text = "\\n\\n".join(bluesky_parts)
+            if not _bluesky_text_fits(bluesky_text) and len(bluesky_parts) > 2 and bluesky_parts[2].startswith("#"):
+                bluesky_parts.pop(2)
+                bluesky_text = "\\n\\n".join(bluesky_parts)
+            if not _bluesky_text_fits(bluesky_text):
+                bluesky_parts[-1] = "https://zombcash.github.io/"
+                bluesky_text = "\\n\\n".join(bluesky_parts)
+            if not _bluesky_text_fits(bluesky_text):
+                raise ValueError("Caption itself exceeds Bluesky limit; not truncated.")
             try:
                 bluesky_result = await asyncio.to_thread(
-                    publish_bluesky_post,
-                    bluesky_text,
-                    image_payload,
+                    publish_bluesky_post, bluesky_text, image_payload,
                     "ZombieCash " + image_style.lower() + " artwork: " + bluesky_caption[:120],
                 )
                 if bluesky_result is True:
                     logging.info("BLUESKY SUCCESS: category=%s style=%s", series, image_style)
                 else:
-                    logging.error(
-                        "BLUESKY NOT PUBLISHED: category=%s style=%s reason=publisher_returned_false",
+                    raise RuntimeError("publisher returned false")
+            except Exception as bluesky_error:
+                logging.exception("BLUESKY FAILURE: category=%s style=%s; queueing retry", series, image_style)
+                try:
+                    enqueue_bluesky_retry(
+                        bluesky_text, image_payload,
+                        "ZombieCash " + image_style.lower() + " artwork: " + bluesky_caption[:120],
                         series, image_style,
                     )
-            except Exception as bluesky_error:
-                # Never cancel Telegram delivery or rotation because Bluesky failed.
-                logging.exception(
-                    "BLUESKY FAILURE: category=%s style=%s error_type=%s",
-                    series, image_style, type(bluesky_error).__name__,
-                )
+                    context.application.job_queue.run_once(
+                        bluesky_retry_job, when=BLUESKY_RETRY_DELAYS[0],
+                        name="zombcash_bluesky_retry",
+                    )
+                except Exception:
+                    logging.exception("Could not persist Bluesky retry queue item")
             logging.info("AUTO POST: rotation_index=%s series=%s style=%s published to @ZOMBCASH",
                          rotation_index, series, image_style)
             image.close()
