@@ -76,6 +76,22 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["signature"], "sig123")
         self.assertNotIn(SECRET, repr(result))
 
+    async def test_insufficient_wallet_balance_fails_before_secret_or_broadcast(self):
+        request, calls = self.make_supabase()
+        async def balance_checker(public_key):
+            return 10_000_000
+        async def executor(**kwargs):
+            raise AssertionError("executor must not be called")
+        with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
+            result = await submit_live_order(
+                telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
+                amount=0.01, supabase_request=request, executor=executor,
+                balance_checker=balance_checker,
+            )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["errorCode"], "insufficient_wallet_sol_balance")
+        self.assertFalse(any(path == "rpc/sniper_live_order_wallet_secret" for path, _ in calls))
+
     async def test_unknown_execution_is_persisted_and_not_retried(self):
         request, calls = self.make_supabase()
         async def executor(**kwargs):
