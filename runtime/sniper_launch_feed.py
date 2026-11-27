@@ -84,6 +84,7 @@ FEED_STATE = {
     "shrineTradeLastEventMint": None,
     "shrineTradeInvalidEvents": 0,
     "shrineTradeLastInvalidReason": None,
+    "shrineTradeLastInvalidContext": None,
 }
 
 
@@ -901,6 +902,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "shrineTradeLastEventMint": FEED_STATE.get("shrineTradeLastEventMint"),
                     "shrineTradeInvalidEvents": int(FEED_STATE.get("shrineTradeInvalidEvents", 0)),
                     "shrineTradeLastInvalidReason": FEED_STATE.get("shrineTradeLastInvalidReason"),
+                    "shrineTradeLastInvalidContext": FEED_STATE.get("shrineTradeLastInvalidContext"),
                 },
             })
         except Exception:
