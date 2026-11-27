@@ -37,6 +37,14 @@ FEED_STATE = {
     "pumpdevStatus": "disabled",
     "pumpdevSubscribedMints": 0,
     "pumpdevLastError": None,
+    "pumpdevAckCount": 0,
+    "pumpdevLastAck": None,
+    "pumpdevNoticeCount": 0,
+    "pumpdevLastNotice": None,
+    "pumpdevTradeEventsSeen": 0,
+    "pumpdevTradeEventsRejected": 0,
+    "pumpdevTradeRejectReasons": {},
+    "pumpdevTradePersistErrors": 0,
 }
 
 
@@ -214,7 +222,35 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         await ws.send_json({"method": "subscribeNewToken"})
                                         subscribed_new_tokens = True
                                     continue
-                                if event.get("type") in {"connected", "connectionStatus", "subscribed", "notice"}:
+                                event_type = str(event.get("type") or "").lower()
+                                if event_type == "subscribed":
+                                    FEED_STATE["pumpdevAckCount"] = int(FEED_STATE.get("pumpdevAckCount", 0)) + 1
+                                    ack = {
+                                        "method": str(event.get("method") or "")[:64],
+                                        "accepted": event.get("accepted") if isinstance(event.get("accepted"), (int, list, dict, bool)) else None,
+                                        "dropped": event.get("dropped") if isinstance(event.get("dropped"), (int, list, dict, bool)) else None,
+                                        "at": int(time.time() * 1000),
+                                    }
+                                    FEED_STATE["pumpdevLastAck"] = ack
+                                    log.info("[Sniper] PumpDev subscription ack method=%s accepted=%s dropped=%s",
+                                             ack["method"], str(ack["accepted"])[:120], str(ack["dropped"])[:120])
+                                    continue
+                                if event_type in {"notice", "error"}:
+                                    FEED_STATE["pumpdevNoticeCount"] = int(FEED_STATE.get("pumpdevNoticeCount", 0)) + 1
+                                    notice = {
+                                        "type": event_type,
+                                        "code": str(event.get("code") or "")[:80],
+                                        "message": str(event.get("message") or event.get("error") or "")[:180],
+                                        "accepted": event.get("accepted") if isinstance(event.get("accepted"), (int, list, dict, bool)) else None,
+                                        "dropped": event.get("dropped") if isinstance(event.get("dropped"), (int, list, dict, bool)) else None,
+                                        "at": int(time.time() * 1000),
+                                    }
+                                    FEED_STATE["pumpdevLastNotice"] = notice
+                                    log.warning("[Sniper] PumpDev %s code=%s message=%s accepted=%s dropped=%s",
+                                                event_type, notice["code"], notice["message"],
+                                                str(notice["accepted"])[:120], str(notice["dropped"])[:120])
+                                    continue
+                                if event_type in {"connected", "connectionstatus"}:
                                     continue
                                 if not authenticated:
                                     continue
@@ -240,16 +276,23 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         await ws.send_json({"method": "subscribeTokenTrade", "keys": [mint]})
                                         FEED_STATE["pumpdevSubscribedMints"] = len(active)
                                     continue
+                                FEED_STATE["pumpdevTradeEventsSeen"] = int(FEED_STATE.get("pumpdevTradeEventsSeen", 0)) + 1
                                 normalized = _normalize_pumpdev_trade_event(event)
-                                if normalized:
-                                    try:
-                                        await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized})
-                                        FEED_STATE["tradesReceived"] = int(FEED_STATE.get("tradesReceived", 0)) + 1
-                                        FEED_STATE["lastTradeAt"] = int(time.time() * 1000)
-                                        FEED_STATE["pumpdevLastError"] = None
-                                    except Exception as exc:
-                                        FEED_STATE["pumpdevLastError"] = type(exc).__name__
-                                        log.warning("[Sniper] PumpDev persist failed (%s)", type(exc).__name__)
+                                if not normalized:
+                                    reason = "invalid_or_unsupported_trade"
+                                    reasons = FEED_STATE.setdefault("pumpdevTradeRejectReasons", {})
+                                    reasons[reason] = int(reasons.get(reason, 0)) + 1
+                                    FEED_STATE["pumpdevTradeEventsRejected"] = int(FEED_STATE.get("pumpdevTradeEventsRejected", 0)) + 1
+                                    continue
+                                try:
+                                    await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized})
+                                    FEED_STATE["tradesReceived"] = int(FEED_STATE.get("tradesReceived", 0)) + 1
+                                    FEED_STATE["lastTradeAt"] = int(time.time() * 1000)
+                                    FEED_STATE["pumpdevLastError"] = None
+                                except Exception as exc:
+                                    FEED_STATE["pumpdevTradePersistErrors"] = int(FEED_STATE.get("pumpdevTradePersistErrors", 0)) + 1
+                                    FEED_STATE["pumpdevLastError"] = type(exc).__name__
+                                    log.warning("[Sniper] PumpDev persist failed (%s)", type(exc).__name__)
                             elif message.type == WSMsgType.ERROR:
                                 raise ws.exception() or RuntimeError("PumpDev websocket error")
                             elif message.type in (WSMsgType.CLOSED, WSMsgType.CLOSE):
@@ -406,6 +449,14 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "pumpdevStatus": FEED_STATE.get("pumpdevStatus", "disabled"),
                     "pumpdevSubscribedMints": int(FEED_STATE.get("pumpdevSubscribedMints", 0)),
                     "pumpdevLastError": FEED_STATE.get("pumpdevLastError"),
+                    "pumpdevAckCount": int(FEED_STATE.get("pumpdevAckCount", 0)),
+                    "pumpdevLastAck": FEED_STATE.get("pumpdevLastAck"),
+                    "pumpdevNoticeCount": int(FEED_STATE.get("pumpdevNoticeCount", 0)),
+                    "pumpdevLastNotice": FEED_STATE.get("pumpdevLastNotice"),
+                    "pumpdevTradeEventsSeen": int(FEED_STATE.get("pumpdevTradeEventsSeen", 0)),
+                    "pumpdevTradeEventsRejected": int(FEED_STATE.get("pumpdevTradeEventsRejected", 0)),
+                    "pumpdevTradeRejectReasons": FEED_STATE.get("pumpdevTradeRejectReasons", {}),
+                    "pumpdevTradePersistErrors": int(FEED_STATE.get("pumpdevTradePersistErrors", 0)),
                 },
             })
         except Exception:
