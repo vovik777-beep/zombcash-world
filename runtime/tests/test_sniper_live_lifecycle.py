@@ -8,7 +8,7 @@ from sniper_execution import LiveExecutionDisabled, LiveExecutionError
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 ORDER_ID = "11111111-1111-4111-8111-111111111111"
 WALLET = "11111111111111111111111111111111"
-SECRET = "test-secret-never-return-this"
+DUMMY_KEY_MATERIAL = "test-secret-never-return-this"
 
 
 class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
@@ -26,7 +26,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             if path == "rpc/sniper_live_order_wallet_get":
                 return {"walletId": "33333333-3333-4333-8333-333333333333", "publicKey": WALLET, "status": "active", "custodyMode": "managed"}
             if path == "rpc/sniper_live_order_wallet_secret":
-                return SECRET
+                return DUMMY_KEY_MATERIAL
             if path == "rpc/sniper_live_order_transition":
                 return {
                     "orderId": "22222222-2222-4222-8222-222222222222",
@@ -65,7 +65,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         request, calls = self.make_supabase()
         async def executor(**kwargs):
             self.assertEqual(kwargs["public_key"], WALLET)
-            self.assertEqual(kwargs["secret_key_base58"], SECRET)
+            self.assertEqual(kwargs["secret_key_base58"], DUMMY_KEY_MATERIAL)
             self.assertEqual(kwargs["max_slippage_bps"], 300)
             return {"status": "confirmed", "signature": "sig123", "slot": 42}
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
@@ -77,7 +77,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(transitions, ["broadcasting", "submitted", "confirmed"])
         self.assertEqual(result["status"], "confirmed")
         self.assertEqual(result["signature"], "sig123")
-        self.assertNotIn(SECRET, repr(result))
+        self.assertNotIn(DUMMY_KEY_MATERIAL, repr(result))
 
     async def test_insufficient_wallet_balance_fails_before_secret_or_broadcast(self):
         request, calls = self.make_supabase()
@@ -102,7 +102,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "unknown"])
@@ -116,9 +116,9 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             if path == "rpc/sniper_live_order_prepare":
                 return {"orderId": "22222222-2222-4222-8222-222222222222", "status": "prepared"}
             if path == "rpc/sniper_live_order_wallet_get":
-                return {"publicKey": WALLET, "status": "active"}
+                return {"walletId": "33333333-3333-4333-8333-333333333333", "publicKey": WALLET, "status": "active", "custodyMode": "managed"}
             if path == "rpc/sniper_live_order_wallet_secret":
-                return SECRET
+                return DUMMY_KEY_MATERIAL
             if path == "rpc/sniper_live_order_transition":
                 raise RuntimeError("database unavailable")
             raise AssertionError("unexpected RPC: " + path)
@@ -167,7 +167,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "failed"])
