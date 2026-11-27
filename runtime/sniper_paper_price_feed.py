@@ -213,6 +213,9 @@ async def _fetch_geckoterminal_token_pools(session: ClientSession, mint: str):
         params={"include": "base_token,quote_token", "sort": "h24_volume_usd_desc"},
         headers={"Accept": "application/json;version=20230203", "User-Agent": "ZombieCash-PaperPrice/1.0"},
     ) as response:
+        # No indexed pools is a normal no-quote result for long-tail or inactive tokens.
+        if response.status == 404:
+            return {"data": []}
         if response.status != 200:
             raise RuntimeError(f"GeckoTerminal token pools HTTP {response.status}")
         payload = await response.json(content_type=None)
@@ -343,7 +346,7 @@ async def paper_price_mark_worker(supabase_request, state):
                             raise
                         except Exception as exc:
                             errors += 1
-                            log.warning("[Sniper] GeckoTerminal token-pools fallback failed (%s)", type(exc).__name__)
+                            log.warning("[Sniper] GeckoTerminal token-pools fallback failed (%s: %s)", type(exc).__name__, str(exc)[:100])
                         if index < len(pool_mints) - 1:
                             await asyncio.sleep(REQUEST_SPACING_SECONDS)
 
