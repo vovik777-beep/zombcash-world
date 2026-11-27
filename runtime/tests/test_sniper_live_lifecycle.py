@@ -19,9 +19,9 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             if path == "rpc/sniper_user_settings_get":
                 return {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
             if path == "rpc/sniper_live_order_prepare":
-                return {"orderId": "22222222-2222-4222-8222-222222222222", "status": prepared_status}
+                return {"orderId": "22222222-2222-4222-8222-222222222222", "walletId": "33333333-3333-4333-8333-333333333333", "status": prepared_status}
             if path == "rpc/sniper_live_order_wallet_get":
-                return {"publicKey": WALLET, "status": "active"}
+                return {"walletId": "33333333-3333-4333-8333-333333333333", "publicKey": WALLET, "status": "active", "custodyMode": "managed"}
             if path == "rpc/sniper_live_order_wallet_secret":
                 return SECRET
             if path == "rpc/sniper_live_order_transition":
