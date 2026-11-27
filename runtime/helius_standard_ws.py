@@ -96,8 +96,9 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
             if not owner or amount is None:
                 continue
             target[owner] = target.get(owner, 0.0) + amount
+    signer_owners = {pubkey for pubkey, signer in key_rows if pubkey and signer}
     deltas = []
-    for owner in set(pre_by_owner) & set(post_by_owner):
+    for owner in (set(pre_by_owner) & set(post_by_owner)) & signer_owners:
         delta = post_by_owner[owner] - pre_by_owner[owner]
         if abs(delta) > 0:
             deltas.append((owner, delta))
