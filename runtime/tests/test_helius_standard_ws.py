@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from helius_standard_ws import _helius_ws_url_from_rpc, _normalize_helius_trade_event
+from helius_standard_ws import _helius_rpc_url_from_env, _helius_ws_url_from_rpc, _normalize_helius_trade_event
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 
@@ -41,6 +41,19 @@ class HeliusStandardWsTests(unittest.TestCase):
                 }],
             },
         }
+
+    def test_builds_mainnet_rpc_url_from_api_key_without_logging_it(self):
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"HELIUS_API_KEY": "test-key", "HELIUS_RPC_URL": ""}, clear=False):
+            self.assertEqual(
+                _helius_rpc_url_from_env(),
+                "https://mainnet.helius-rpc.com/?api-key=test-key",
+            )
+        with patch.dict("os.environ", {"HELIUS_API_KEY": "", "HELIUS_RPC_URL": "https://mainnet.helius-rpc.com/?api-key=url-key"}, clear=False):
+            self.assertEqual(
+                _helius_rpc_url_from_env(),
+                "https://mainnet.helius-rpc.com/?api-key=url-key",
+            )
 
     def test_derives_helius_standard_wss_url(self):
         self.assertEqual(
