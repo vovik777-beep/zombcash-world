@@ -169,38 +169,29 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
 
 
     async def pumpdev_trade_worker() -> None:
+        """Discover new Pump.fun tokens only while Auto Sniper is enabled; then capture their trades."""
         backoff = 5
         while True:
-            # FadeHost environment variables may be saved after the app starts.
-            # Keep the worker alive so it can pick up the opt-in flag and key
-            # without requiring a separate process restart.
-            if os.getenv("PUMPDEV_TRADE_FEED_ENABLED", "0").strip().lower() not in {"1", "true", "yes"}:
-                FEED_STATE.update({
-                    "pumpdevEnabled": False,
-                    "pumpdevConnected": False,
-                    "pumpdevStatus": "disabled",
-                    "pumpdevSubscribedMints": 0,
-                })
-                await asyncio.sleep(5)
-                continue
+            await launch_enabled.wait()
             api_key = os.getenv("PUMPDEV_API_KEY", "").strip()
-            if not api_key:
-                FEED_STATE.update({
-                    "pumpdevEnabled": False,
-                    "pumpdevConnected": False,
-                    "pumpdevStatus": "missing_api_key",
-                    "pumpdevSubscribedMints": 0,
-                })
-                await asyncio.sleep(5)
-                continue
             try:
                 active = []
+                subscribed_new_tokens = False
+                authenticated = not bool(api_key)
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
                     async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=20, receive_timeout=600, max_msg_size=1_000_000) as ws:
-                        FEED_STATE.update({"pumpdevConnected": False, "pumpdevStatus": "authenticating"})
-                        await ws.send_json({"method": "auth", "key": api_key})
-                        authenticated = False
+                        FEED_STATE.update({"pumpdevEnabled": True, "pumpdevConnected": True,
+                            "pumpdevStatus": "connected_anonymous" if not api_key else "authenticating",
+                            "pumpdevLastError": None, "pumpdevSubscribedMints": 0})
+                        if api_key:
+                            await ws.send_json({"method": "auth", "key": api_key})
+                        else:
+                            await ws.send_json({"method": "subscribeNewToken"})
+                            subscribed_new_tokens = True
                         async for message in ws:
+                            if not launch_enabled.is_set():
+                                await ws.close()
+                                break
                             if message.type == WSMsgType.TEXT:
                                 try:
                                     event = json.loads(message.data)
@@ -209,20 +200,37 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                 if not isinstance(event, dict):
                                     continue
                                 if event.get("type") == "auth":
-                                    if event.get("status") != "ok":
-                                        FEED_STATE["pumpdevStatus"] = "auth_rejected"
-                                        raise RuntimeError("PumpDev auth rejected")
-                                    authenticated = True
-                                    FEED_STATE.update({"pumpdevEnabled": True, "pumpdevConnected": True, "pumpdevStatus": "connected"})
-                                    await ws.send_json({"method": "subscribeNewToken"})
-                                    backoff = 5
+                                    status = str(event.get("status") or "").lower()
+                                    if status == "error":
+                                        FEED_STATE["pumpdevStatus"] = "auth_error"
+                                        raise RuntimeError("PumpDev auth error")
+                                    authenticated = status in {"ok", "free"}
+                                    FEED_STATE.update({"pumpdevEnabled": True, "pumpdevConnected": authenticated,
+                                        "pumpdevStatus": "connected" if status == "ok" else "connected_free"})
+                                    if not subscribed_new_tokens:
+                                        await ws.send_json({"method": "subscribeNewToken"})
+                                        subscribed_new_tokens = True
+                                    continue
+                                if event.get("type") in {"connected", "connectionStatus", "subscribed", "notice"}:
                                     continue
                                 if not authenticated:
                                     continue
                                 if event.get("txType") == "create":
+                                    launch = _normalize_launch_event(event)
                                     mint = str(event.get("mint") or "").strip()
+                                    if launch:
+                                        try:
+                                            await persist_launch(launch)
+                                            FEED_STATE["lastEventAt"] = int(time.time() * 1000)
+                                            FEED_STATE["received"] = int(FEED_STATE.get("received", 0)) + 1
+                                            FEED_STATE["lastError"] = None
+                                            log.info("[Sniper] PumpDev launch stored: %s", mint)
+                                        except Exception as exc:
+                                            FEED_STATE["pumpdevLastError"] = type(exc).__name__
+                                            log.warning("[Sniper] PumpDev launch persist failed (%s)", type(exc).__name__)
                                     if MINT_RE.fullmatch(mint) and mint not in active:
-                                        if len(active) >= 25:
+                                        max_subs = 25 if api_key else 5
+                                        if len(active) >= max_subs:
                                             old = active.pop(0)
                                             await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old]})
                                         active.append(mint)
@@ -249,12 +257,15 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 FEED_STATE["pumpdevConnected"] = False
                 FEED_STATE["pumpdevStatus"] = "reconnecting"
                 FEED_STATE["pumpdevLastError"] = type(exc).__name__
-                log.warning("[Sniper] PumpDev disconnected (%s); retry in %ss", type(exc).__name__, backoff)
-                await asyncio.sleep(backoff)
-                backoff = min(backoff * 2, 300)
+                if launch_enabled.is_set():
+                    log.warning("[Sniper] PumpDev disconnected (%s); retry in %ss", type(exc).__name__, backoff)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 120)
             finally:
-                FEED_STATE["pumpdevConnected"] = False
-                FEED_STATE["pumpdevSubscribedMints"] = 0
+                FEED_STATE.update({"pumpdevConnected": False, "pumpdevSubscribedMints": 0,
+                    "pumpdevStatus": "stopped" if not launch_enabled.is_set() else FEED_STATE.get("pumpdevStatus", "reconnecting")})
+                if not launch_enabled.is_set():
+                    FEED_STATE["pumpdevEnabled"] = False
 
     async def worker() -> None:
         """Free PumpPortal launch discovery only; connect only while the website switch is enabled."""
