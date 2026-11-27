@@ -85,7 +85,12 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
             key_rows.append((str(item or ""), False))
     pre_by_owner = {}
     post_by_owner = {}
-    for rows, target in ((meta.get("preTokenBalances"), pre_by_owner), (meta.get("postTokenBalances"), post_by_owner)):
+    pre_indexes = {}
+    post_indexes = {}
+    for rows, target, indexes in (
+        (meta.get("preTokenBalances"), pre_by_owner, pre_indexes),
+        (meta.get("postTokenBalances"), post_by_owner, post_indexes),
+    ):
         if not isinstance(rows, list):
             continue
         for row in rows:
@@ -96,10 +101,18 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
             if not owner or amount is None:
                 continue
             target[owner] = target.get(owner, 0.0) + amount
+            try:
+                indexes.setdefault(owner, set()).add(int(row.get("accountIndex")))
+            except (TypeError, ValueError):
+                pass
     signer_owners = {pubkey for pubkey, signer in key_rows if pubkey and signer}
     deltas = []
-    for owner in (set(pre_by_owner) & set(post_by_owner)) & signer_owners:
-        delta = post_by_owner[owner] - pre_by_owner[owner]
+    for owner in (set(pre_by_owner) | set(post_by_owner)) & signer_owners:
+        if owner not in post_by_owner:
+            # Closing the token account can refund rent to the wallet; skip it rather than
+            # mistake the rent refund for SOL proceeds.
+            continue
+        delta = post_by_owner.get(owner, 0.0) - pre_by_owner.get(owner, 0.0)
         if abs(delta) > 0:
             deltas.append((owner, delta))
     if len(deltas) != 1:
@@ -118,9 +131,21 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
     except (TypeError, ValueError):
         return None
     fee_adjustment = fee_lamports if owner_index == 0 else 0
+    rent_adjustment = 0
+    if owner_index == 0:
+        for account_index in post_indexes.get(owner, set()) - pre_indexes.get(owner, set()):
+            if account_index < 0 or account_index >= len(pre_lamports) or account_index >= len(post_lamports):
+                continue
+            try:
+                before_account_lamports = int(pre_lamports[account_index])
+                after_account_lamports = int(post_lamports[account_index])
+            except (TypeError, ValueError):
+                continue
+            if before_account_lamports == 0 and after_account_lamports > 0:
+                rent_adjustment += after_account_lamports
     if token_delta > 0:
         side = "buy"
-        sol_lamports = pre_sol_lamports - post_sol_lamports - fee_adjustment
+        sol_lamports = pre_sol_lamports - post_sol_lamports - fee_adjustment - rent_adjustment
     else:
         side = "sell"
         sol_lamports = post_sol_lamports - pre_sol_lamports + fee_adjustment
