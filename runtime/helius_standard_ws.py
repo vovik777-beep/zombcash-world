@@ -192,6 +192,7 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
         "priceSol": price,
         "eventAt": event_at,
         "trader": owner[:64],
+        "source": "helius_standard_ws",
     }
 
 
@@ -228,6 +229,7 @@ def _normalize_pumpfun_log_trade(event, mint: str, signature: str, event_index: 
         "priceSol": price,
         "eventAt": int(time.time() * 1000),
         "trader": str(event.get("user") or "")[:64],
+        "source": "helius_standard_ws",
     }
 
 

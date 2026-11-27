@@ -77,6 +77,7 @@ class SniperLaunchFeedTests(unittest.TestCase):
         })
         self.assertIsNotNone(event)
         self.assertEqual(event["side"], "buy")
+        self.assertEqual(event["source"], "pumpdev")
         self.assertEqual(event["solAmount"], 0.5)
         self.assertEqual(event["tokenAmount"], 1)
         self.assertAlmostEqual(event["priceSol"], 0.5)
