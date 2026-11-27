@@ -50,6 +50,31 @@ FEED_STATE = {
 }
 
 
+async def _read_paper_monitoring_opt_in(supabase_request):
+    """Read the aggregate Paper-mode opt-in without exposing individual users."""
+    try:
+        enabled = await supabase_request(
+            "POST", "rpc/sniper_any_paper_monitoring_enabled", payload={}
+        )
+    except Exception as exc:
+        log.warning(
+            "[Sniper] Could not read persisted monitoring preference (%s)",
+            type(exc).__name__,
+        )
+        return None
+    return enabled is True
+
+
+async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asyncio.Event) -> bool:
+    """Restore the persisted Paper-mode opt-in after an API process restart."""
+    enabled = await _read_paper_monitoring_opt_in(supabase_request)
+    if enabled:
+        launch_enabled.set()
+        FEED_STATE["paperEngineEnabled"] = True
+        return True
+    return False
+
+
 def _safe_number(value):
     if value in (None, ""):
         return None
@@ -165,16 +190,29 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
 
     async def set_enabled(enabled: bool) -> None:
         nonlocal active_launch_ws, active_pumpdev_ws
-        if enabled:
+        persisted = await _read_paper_monitoring_opt_in(supabase_request)
+        if persisted is None:
+            # If the database cannot confirm a new opt-in, do not start new feeds.
+            # An explicit opt-out still stops this process immediately.
+            if enabled:
+                return
+            effective_enabled = False
+        else:
+            # Feeds are shared by all registered users: one user's opt-out must not
+            # stop monitoring while another Paper-mode user remains opted in.
+            effective_enabled = persisted
+        if effective_enabled:
             launch_enabled.set()
-            log.info("[Sniper] Launch monitoring enabled from website")
+            FEED_STATE["paperEngineEnabled"] = True
+            log.info("[Sniper] Launch monitoring active from persisted Paper-mode user settings")
             return
         launch_enabled.clear()
+        FEED_STATE["paperEngineEnabled"] = False
         for ws in (active_launch_ws, active_pumpdev_ws):
             if ws is not None and not ws.closed:
                 await ws.close()
         FEED_STATE.update({"connected": False, "lastError": None})
-        log.info("[Sniper] Launch monitoring stopped from website")
+        log.info("[Sniper] Launch monitoring stopped; no Paper-mode users remain opted in")
 
     async def persist_launch(event: dict) -> None:
         await supabase_request("POST", "rpc/sniper_launch_upsert", payload={"p_event": event})
@@ -183,7 +221,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
     async def pumpdev_trade_worker() -> None:
         """Discover new Pump.fun tokens only while Auto Sniper is enabled; then capture their trades."""
         nonlocal active_pumpdev_ws
-        backoff = 5
+        backoff = 30
         while True:
             await launch_enabled.wait()
             api_key = os.getenv("PUMPDEV_API_KEY", "").strip()
@@ -196,7 +234,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 subscribed_new_tokens = False
                 authenticated = not bool(api_key)
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
-                    async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=20, receive_timeout=600, max_msg_size=1_000_000) as ws:
+                    async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=30, receive_timeout=600, max_msg_size=1_000_000) as ws:
                         active_pumpdev_ws = ws
                         FEED_STATE.update({"pumpdevEnabled": True, "pumpdevConnected": True,
                             "pumpdevStatus": "connected_anonymous" if not api_key else "authenticating",
@@ -297,7 +335,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     for old_mint in expired:
                                         await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old_mint]})
                                         active.pop(old_mint, None)
-                                    max_subs = 25 if api_key else 5
+                                    max_subs = 20 if api_key else 4
                                     while pending and len(active) < max_subs:
                                         next_mint, queued_at = pending.pop(0)
                                         if now_ms - queued_at >= 60_000:
@@ -400,7 +438,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 if launch_enabled.is_set():
                     log.warning("[Sniper] PumpDev disconnected (%s); retry in %ss", type(exc).__name__, backoff)
                     await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 120)
+                    backoff = min(backoff * 2, 300)
             finally:
                 active_pumpdev_ws = None
                 FEED_STATE.update({"pumpdevConnected": False, "pumpdevSubscribedMints": 0,
@@ -411,7 +449,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
     async def worker() -> None:
         """Free PumpPortal launch discovery only; connect only while the website switch is enabled."""
         nonlocal active_launch_ws
-        backoff = 60
+        backoff = 120
         while True:
             await launch_enabled.wait()
             try:
@@ -420,7 +458,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 async with ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(
                         uri,
-                        heartbeat=20,
+                        heartbeat=30,
                         receive_timeout=600,
                         max_msg_size=1_000_000,
                     ) as ws:
@@ -441,7 +479,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                         log.info("[Sniper] PumpPortal launch-only websocket connected (newToken + migration)")
                         await ws.send_json({"method": "subscribeNewToken"})
                         await ws.send_json({"method": "subscribeMigration"})
-                        backoff = 5
+                        backoff = 120
                         async for message in ws:
                             if message.type == WSMsgType.TEXT:
                                 try:
@@ -478,7 +516,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     FEED_STATE["lastError"] = type(exc).__name__
                     log.warning("[Sniper] PumpPortal launch stream disconnected (%s: %s); retrying in %ss", type(exc).__name__, str(exc)[:160], backoff)
                     await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 120)
+                    backoff = min(backoff * 2, 600)
             finally:
                 active_launch_ws = None
                 FEED_STATE["connected"] = False
@@ -509,10 +547,14 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
 
     async def startup(application: web.Application) -> None:
         application["sniper_launch_feed_set_enabled"] = set_enabled
+        restored = await _restore_paper_monitoring_opt_in(supabase_request, launch_enabled)
         application["sniper_launch_feed_task"] = asyncio.create_task(worker())
         application["pumpdev_trade_feed_task"] = asyncio.create_task(pumpdev_trade_worker())
         application["sniper_paper_watchdog_task"] = asyncio.create_task(paper_position_watchdog())
-        log.info("[Sniper] Launch monitoring is OFF until enabled by the website button; Paper position watchdog runs independently")
+        if restored:
+            log.info("[Sniper] Restored launch monitoring from persisted Paper-mode user settings")
+        else:
+            log.info("[Sniper] Launch monitoring remains OFF (no enabled Paper-mode user); Paper watchdog runs independently")
 
     async def cleanup(application: web.Application) -> None:
         task = application.get("sniper_launch_feed_task")
