@@ -1029,18 +1029,73 @@ async def zombcash(request):
 
 
 async def soi_public_report(request):
-    """Expose the latest verified SOI report as a read-only public endpoint."""
+    """Publish the tokens actually discovered and stored by the on-demand Sniper feed."""
     try:
-        with open(SOI_PUBLIC_REPORT_FILE, "r", encoding="utf-8") as handle:
-            report = json.load(handle)
-        if not isinstance(report, dict) or not isinstance(report.get("launches"), list):
-            raise ValueError("Invalid SOI report schema")
-        return web.json_response(report)
-    except FileNotFoundError:
-        return web.json_response({"error": "SOI report is not available yet"}, status=503)
-    except (OSError, ValueError, json.JSONDecodeError):
-        log.exception("SOI public report is unavailable or invalid")
-        return web.json_response({"error": "SOI report is temporarily unavailable"}, status=503)
+        launches = await _supabase_request("POST", "rpc/sniper_launch_list", payload={"p_limit": 100})
+        if not isinstance(launches, list):
+            launches = []
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(hours=24)
+        recent = []
+        for item in launches:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("eventAt") or item.get("receivedAt")
+            try:
+                stamp = float(raw)
+                event_at = datetime.fromtimestamp(stamp / 1000 if stamp > 1_000_000_000_000 else stamp, tz=timezone.utc)
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if event_at < cutoff:
+                continue
+            first = item.get("firstMinute") if isinstance(item.get("firstMinute"), dict) else {}
+            recent.append({
+                "mint": item.get("mint"),
+                "name": item.get("name"),
+                "symbol": item.get("symbol"),
+                "venue": "Pump.fun",
+                "first_seen_at": event_at.isoformat(),
+                "launch_at": event_at.isoformat(),
+                "sources": [item.get("source") or "sniper"],
+                "market_cap_usd": None,
+                "liquidity_usd": None,
+                "first_hour": {
+                    "trade_count": first.get("tradeCount", 0),
+                    "buy_count": first.get("buyCount", 0),
+                    "sell_count": first.get("sellCount", 0),
+                    "unique_buyers": first.get("uniqueBuyers", 0),
+                    "status": "partial" if not first.get("windowComplete") else "complete",
+                    "market_snapshot_count": None,
+                },
+                "socials": {"observed": False},
+                "promotion": {"observed": False},
+                "market_cap_milestone_1m": {"reached": False},
+            })
+        summary = {
+            "launches_detected": len(recent),
+            "buys": sum(int((x.get("first_hour") or {}).get("buy_count") or 0) for x in recent),
+            "sells": sum(int((x.get("first_hour") or {}).get("sell_count") or 0) for x in recent),
+            "pools_created": 0,
+            "observations": sum(int((x.get("first_hour") or {}).get("trade_count") or 0) for x in recent),
+            "sources_observed": ["PumpDev"],
+        }
+        return web.json_response({
+            "status": "partial",
+            "generated_at": now.isoformat(),
+            "methodology": "Launches detected by ZombieCash Auto Sniper while enabled. First-minute trade data comes from PumpDev. Market-cap, liquidity, social and promotion metrics are not inferred when unavailable.",
+            "coverage": {"status": "partial", "description": "Pump.fun launches observed while Auto Sniper was enabled; no background discovery when it is off.", "sources_observed": ["PumpDev"]},
+            "rolling_24h": {
+                "window_start": cutoff.isoformat(),
+                "window_end": now.isoformat(),
+                "summary": summary,
+                "launches": recent,
+            },
+            "launches": recent,
+            "daily_history": [],
+        })
+    except Exception:
+        log.exception("Sniper-backed SOI report is unavailable")
+        return web.json_response({"error": "Sniper launch report is temporarily unavailable"}, status=503)
 
 
 async def health(request):
