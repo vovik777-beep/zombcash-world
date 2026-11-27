@@ -115,7 +115,7 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIn("subscribeTokenTrade", source)
         self.assertNotIn("/api/trade", source)
         self.assertIn('"pumpdevStatus": "connected_anonymous"', source)
-        self.assertIn('"pumpdevStatus": "connected_free"', source)
+        self.assertIn('"pumpdevStatus": "connected" if status == "ok" else "connected_free"', source)
         self.assertIn('"paperEngineEnabled": False', source)
 
     def test_free_tier_request_budget_is_conservative(self):
