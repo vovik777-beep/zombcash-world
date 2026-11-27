@@ -6,6 +6,7 @@ from helius_standard_ws import (
     _helius_ws_url_from_rpc,
     _normalize_helius_trade_event,
     _normalize_pumpfun_log_trade,
+    _consume_helius_frame_budget,
 )
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -140,6 +141,38 @@ class HeliusStandardWsTests(unittest.TestCase):
         tx = self._transaction("buy")
         tx["transaction"]["message"]["accountKeys"].append({"pubkey": "TraderWallet", "signer": True})
         self.assertIsNone(_normalize_helius_trade_event(tx, MINT))
+
+
+
+class HeliusBudgetFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_lookup_cap_skips_optional_lookup_but_keeps_frame(self):
+        from unittest.mock import AsyncMock
+        request = AsyncMock(side_effect=[
+            {"allowed": False, "reason": "lookup_budget_exhausted"},
+            {"allowed": True, "messagesDay": 12, "bytesDay": 2048, "lookupsDay": 250},
+        ])
+        result = await _consume_helius_frame_budget(request, 512, True)
+        self.assertTrue(result["allowed"])
+        self.assertTrue(result["lookupSkippedDueToBudget"])
+        self.assertEqual(request.await_count, 2)
+        self.assertEqual(request.await_args_list[0].args, ("POST", "rpc/sniper_helius_budget_consume"))
+        self.assertEqual(request.await_args_list[0].kwargs["payload"], {"p_bytes": 512, "p_lookup": True})
+        self.assertEqual(request.await_args_list[1].kwargs["payload"], {"p_bytes": 512, "p_lookup": False})
+
+    async def test_message_or_byte_budget_still_blocks_stream(self):
+        from unittest.mock import AsyncMock
+        request = AsyncMock(return_value={"allowed": False, "reason": "byte_budget_exhausted"})
+        result = await _consume_helius_frame_budget(request, 512, True)
+        self.assertFalse(result["allowed"])
+        self.assertEqual(request.await_count, 1)
+
+    async def test_normal_lookup_uses_one_budget_call(self):
+        from unittest.mock import AsyncMock
+        request = AsyncMock(return_value={"allowed": True, "lookupsDay": 10})
+        result = await _consume_helius_frame_budget(request, 512, True)
+        self.assertTrue(result["allowed"])
+        self.assertNotIn("lookupSkippedDueToBudget", result)
+        self.assertEqual(request.await_count, 1)
 
 
 if __name__ == "__main__":
