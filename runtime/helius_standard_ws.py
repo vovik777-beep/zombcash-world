@@ -316,6 +316,7 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                 elif response_id in pending_requests and payload.get("error"):
                                     pending_requests.pop(response_id, None)
                                     state["heliusError"] = "logs_subscribe_rejected"
+                                    raise RuntimeError("Helius logsSubscribe rejected")
                                 if lookup:
                                     seen_signatures.add(signature)
                                     if len(seen_signatures) > 2000:
@@ -339,6 +340,8 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                         if response.status != 200 or not isinstance(tx_response, dict) or tx_response.get("error"):
                                             state["heliusError"] = "get_transaction_failed"
                                             continue
+                                        if not launch_enabled.is_set():
+                                            break
                                         normalized = _normalize_helius_trade_event(
                                             tx_response.get("result"), mint_for_signature, signature
                                         )
