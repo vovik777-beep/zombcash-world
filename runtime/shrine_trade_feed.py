@@ -98,7 +98,8 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                     if first.type != WSMsgType.TEXT or not first.data.startswith("0"):
                         raise RuntimeError("shrine_engineio_handshake_invalid")
                     send_lock = asyncio.Lock()
-                    await ws.send_str("40")
+                    if not await _safe_ws_send(ws, "40", send_lock):
+                        raise RuntimeError("shrine_websocket_handshake_send_failed")
                     connected = await ws.receive(timeout=15)
                     if connected.type != WSMsgType.TEXT or not connected.data.startswith("40"):
                         raise RuntimeError("shrine_socketio_namespace_not_connected")
@@ -184,7 +185,8 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 await asyncio.sleep(0.5)
                                 continue
                             packet = "42" + json.dumps(["subscribe_trades", {"mint": mint}], separators=(",", ":"))
-                            await ws.send_str(packet)
+                            if not await _safe_ws_send(ws, packet, send_lock):
+                                raise RuntimeError("shrine_websocket_subscribe_send_failed")
                             active[mint] = time.monotonic()
                             feed_state["shrineTradeSubscriptions"] = len(active)
                             feed_state["shrineTradeSubscriptionsSent"] = int(feed_state.get("shrineTradeSubscriptionsSent", 0)) + 1
