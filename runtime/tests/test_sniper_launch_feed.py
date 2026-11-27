@@ -118,6 +118,16 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIn('"pumpdevStatus": "connected_free"', source)
         self.assertIn('"paperEngineEnabled": False', source)
 
+    def test_free_tier_request_budget_is_conservative(self):
+        from pathlib import Path
+        source = Path("sniper_launch_feed.py").read_text(encoding="utf-8")
+        self.assertIn("max_subs = 20 if api_key else 4", source)
+        self.assertIn("heartbeat=30", source)
+        self.assertIn("backoff = 30", source)
+        self.assertIn("backoff = 120", source)
+        self.assertIn("backoff = min(backoff * 2, 300)", source)
+        self.assertIn("backoff = min(backoff * 2, 600)", source)
+
     def test_pumpdev_worker_waits_for_website_opt_in(self):
         from pathlib import Path
         source = Path("sniper_launch_feed.py").read_text(encoding="utf-8")
