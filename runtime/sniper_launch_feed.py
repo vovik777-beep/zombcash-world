@@ -282,6 +282,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 active = {}
                 pending = []
                 subscribed_new_tokens = False
+                last_diagnostic_at = 0.0
                 authenticated = not bool(api_key)
                 subscription_limit = 4
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
@@ -306,6 +307,22 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     continue
                                 if not isinstance(event, dict):
                                     continue
+                                diagnostic_now = time.monotonic()
+                                if diagnostic_now - last_diagnostic_at >= 60:
+                                    last_diagnostic_at = diagnostic_now
+                                    log.info(
+                                        "[Sniper] PumpDev stream diagnostics active=%s pending=%s acks=%s "
+                                        "trade_events_seen=%s rejected=%s persist_errors=%s tx_types=%s "
+                                        "reject_reasons=%s notices=%s",
+                                        len(active), len(pending),
+                                        int(FEED_STATE.get("pumpdevAckCount", 0)),
+                                        int(FEED_STATE.get("pumpdevTradeEventsSeen", 0)),
+                                        int(FEED_STATE.get("pumpdevTradeEventsRejected", 0)),
+                                        int(FEED_STATE.get("pumpdevTradePersistErrors", 0)),
+                                        str(FEED_STATE.get("pumpdevTxTypeCounts", {}))[:240],
+                                        str(FEED_STATE.get("pumpdevTradeRejectReasons", {}))[:240],
+                                        int(FEED_STATE.get("pumpdevNoticeCount", 0)),
+                                    )
                                 if event.get("type") == "auth":
                                     status = str(event.get("status") or "").lower()
                                     if status == "error":
