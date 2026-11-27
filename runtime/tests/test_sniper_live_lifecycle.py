@@ -90,6 +90,28 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["status"], "unknown")
         self.assertEqual(result["signature"], "sig-unknown")
 
+    async def test_executor_is_not_called_when_broadcast_lock_fails(self):
+        async def request(method, path, payload=None):
+            if path == "rpc/sniper_user_settings_get":
+                return {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
+            if path == "rpc/sniper_live_order_prepare":
+                return {"orderId": "22222222-2222-4222-8222-222222222222", "status": "prepared"}
+            if path == "rpc/sniper_wallet_get":
+                return {"publicKey": WALLET, "status": "active"}
+            if path == "rpc/sniper_wallet_secret":
+                return SECRET
+            if path == "rpc/sniper_live_order_transition":
+                raise RuntimeError("database unavailable")
+            raise AssertionError("unexpected RPC: " + path)
+        async def executor(**kwargs):
+            raise AssertionError("broadcast must not start without the DB lock")
+        with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
+            with self.assertRaises(RuntimeError):
+                await submit_live_order(
+                    telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
+                    amount=0.01, supabase_request=request, executor=executor,
+                )
+
     async def test_execution_error_marks_order_failed(self):
         request, calls = self.make_supabase()
         async def executor(**kwargs):
