@@ -12,6 +12,7 @@ log = logging.getLogger("zombcash.sniper.paper_prices")
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 SOL_MINT = "So11111111111111111111111111111111111111112"
 DEXSCREENER_TOKEN_PAIRS_URL = "https://api.dexscreener.com/token-pairs/v1/solana/{}"
+JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 MIN_LIQUIDITY_USD = 500.0
 MAX_MINTS_PER_CYCLE = 20
 POLL_INTERVAL_SECONDS = 60.0
@@ -68,6 +69,48 @@ def normalize_dexscreener_paper_mark(pairs, mint: str, observed_at_ms: int | Non
     }
 
 
+def normalize_jupiter_paper_mark(prices, mint: str, observed_at_ms: int | None = None):
+    """Convert Jupiter's USD prices to SOL using the same response's SOL/USD anchor."""
+    if not isinstance(prices, dict):
+        return None
+    token = prices.get(mint)
+    sol = prices.get(SOL_MINT)
+    if not isinstance(token, dict) or not isinstance(sol, dict):
+        return None
+    usd_price = _number(token.get("usdPrice"))
+    sol_usd = _number(sol.get("usdPrice"))
+    liquidity = _number(token.get("liquidity"))
+    if usd_price is None or usd_price <= 0 or sol_usd is None or sol_usd <= 0:
+        return None
+    if liquidity is None or liquidity < MIN_LIQUIDITY_USD:
+        return None
+    price_sol = usd_price / sol_usd
+    if not math.isfinite(price_sol) or price_sol <= 0:
+        return None
+    return {
+        "mint": mint,
+        "source": "jupiter",
+        "priceSol": price_sol,
+        "liquidityUsd": liquidity,
+        "pairAddress": "jupiter-price-v3",
+        "observedAt": int(observed_at_ms or time.time() * 1000),
+    }
+
+
+async def _fetch_jupiter_prices(session: ClientSession, mints: list[str]):
+    """One keyless batch call; Jupiter documents 0.5 requests/sec without an API key."""
+    ids = list(dict.fromkeys([*mints, SOL_MINT]))[:50]
+    async with session.get(
+        JUPITER_PRICE_URL,
+        params={"ids": ",".join(ids)},
+        headers={"Accept": "application/json", "User-Agent": "ZombieCash-PaperPrice/1.0"},
+    ) as response:
+        if response.status != 200:
+            raise RuntimeError(f"Jupiter Price API HTTP {response.status}")
+        payload = await response.json(content_type=None)
+    return payload if isinstance(payload, dict) else {}
+
+
 async def _fetch_token_pairs(session: ClientSession, mint: str):
     url = DEXSCREENER_TOKEN_PAIRS_URL.format(mint)
     async with session.get(url, headers={"Accept": "application/json", "User-Agent": "ZombieCash-PaperPrice/1.0"}) as response:
@@ -104,14 +147,13 @@ async def paper_price_mark_worker(supabase_request, state):
             updated = 0
             no_pair = 0
             errors = 0
+            dex_covered = set()
             async with ClientSession(timeout=timeout) as session:
                 for index, mint in enumerate(mints):
                     try:
                         pairs = await _fetch_token_pairs(session, mint)
                         mark = normalize_dexscreener_paper_mark(pairs, mint)
-                        if mark is None:
-                            no_pair += 1
-                        else:
+                        if mark is not None:
                             saved = await supabase_request(
                                 "POST",
                                 "rpc/sniper_paper_price_mark_upsert",
@@ -119,16 +161,46 @@ async def paper_price_mark_worker(supabase_request, state):
                             )
                             if not isinstance(saved, dict) or saved.get("ok") is not True:
                                 errors += 1
-                                log.warning("[Sniper] Paper price mark rejected by Supabase validation")
+                                log.warning("[Sniper] DexScreener Paper mark rejected by Supabase validation")
+                            else:
+                                updated += 1
+                                dex_covered.add(mint)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] DexScreener Paper price refresh failed (%s)", type(exc).__name__)
+                    if index < len(mints) - 1:
+                        await asyncio.sleep(REQUEST_SPACING_SECONDS)
+
+                # Batch fallback for tokens without an eligible SOL pool. Jupiter omits
+                # tokens with no reliable/recent market price; never substitute last-known data.
+                missing_mints = [mint for mint in mints if mint not in dex_covered]
+                if missing_mints:
+                    try:
+                        prices = await _fetch_jupiter_prices(session, missing_mints)
+                        observed_at_ms = int(time.time() * 1000)
+                        for mint in missing_mints:
+                            mark = normalize_jupiter_paper_mark(prices, mint, observed_at_ms)
+                            if mark is None:
+                                no_pair += 1
+                                continue
+                            saved = await supabase_request(
+                                "POST",
+                                "rpc/sniper_paper_price_mark_upsert",
+                                payload={"p_mark": mark},
+                            )
+                            if not isinstance(saved, dict) or saved.get("ok") is not True:
+                                errors += 1
+                                log.warning("[Sniper] Jupiter Paper mark rejected by Supabase validation")
                             else:
                                 updated += 1
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
                         errors += 1
-                        log.warning("[Sniper] Paper price refresh failed (%s)", type(exc).__name__)
-                    if index < len(mints) - 1:
-                        await asyncio.sleep(REQUEST_SPACING_SECONDS)
+                        no_pair = len(missing_mints)
+                        log.warning("[Sniper] Jupiter Paper price fallback failed (%s)", type(exc).__name__)
             state["paperPriceFeedStatus"] = "active"
             state["paperPriceFeedMints"] = len(mints)
             state["paperPriceFeedUpdated"] = updated
