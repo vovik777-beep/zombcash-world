@@ -25,8 +25,9 @@ begin
   if p_telegram_id is null or p_client_order_id is null
      or p_mint is null or pg_catalog.length(p_mint) not between 32 and 44
      or p_mint !~ '^[1-9A-HJ-NP-Za-km-z]+$'
-     or p_side not in ('buy','sell')
+     or p_side is null or p_side not in ('buy','sell')
      or p_amount is null or p_amount <= 0 or p_amount >= 1000000000
+     or p_amount_unit is null
      or (p_side = 'buy' and p_amount_unit <> 'sol')
      or (p_side = 'sell' and p_amount_unit <> 'token') then
     raise exception 'invalid_live_order_request';
