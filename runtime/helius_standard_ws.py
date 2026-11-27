@@ -278,8 +278,14 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                 value = result.get("value") if isinstance(result.get("value"), dict) else {}
                                 signature = str(value.get("signature") or "").strip()
                                 mint_for_signature = subscription_mints.get(params.get("subscription"), "")
+                                log_lines = value.get("logs") if isinstance(value.get("logs"), list) else []
+                                looks_like_swap = any(
+                                    marker in str(line).lower()
+                                    for line in log_lines
+                                    for marker in ("instruction: buy", "instruction: sell", "instruction: swap")
+                                )
                                 lookup = bool(signature and mint_for_signature and value.get("err") is None
-                                              and signature not in seen_signatures)
+                                              and looks_like_swap and signature not in seen_signatures)
                             try:
                                 budget = await supabase_request(
                                     "POST", "rpc/sniper_helius_budget_consume",
