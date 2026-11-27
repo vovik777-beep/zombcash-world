@@ -542,6 +542,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "heliusPersistErrors": int(FEED_STATE.get("heliusPersistErrors", 0)),
                     "paperEngineEnabled": bool(FEED_STATE["paperEngineEnabled"]),
                     "paperEngineStatus": FEED_STATE["paperEngineStatus"],
+                    "paperEngineLastSweepAt": FEED_STATE.get("paperEngineLastSweepAt"),
+                    "paperEngineLastSweep": FEED_STATE.get("paperEngineLastSweep"),
                     "pumpdevEnabled": bool(FEED_STATE.get("pumpdevEnabled", False)),
                     "pumpdevConnected": bool(FEED_STATE.get("pumpdevConnected", False)),
                     "pumpdevStatus": FEED_STATE.get("pumpdevStatus", "disabled"),
