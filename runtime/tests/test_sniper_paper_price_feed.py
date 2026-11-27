@@ -114,7 +114,7 @@ class PaperPriceFeedTests(unittest.TestCase):
             "data": [
                 {
                     "attributes": {
-                        "address": "PoolLow111111111111111111111111111111111",
+                        "address": "11111111111111111111111111111111",
                         "base_token_price_native_currency": "0.000001",
                         "quote_token_price_native_currency": "12",
                         "reserve_in_usd": "800",
@@ -126,7 +126,7 @@ class PaperPriceFeedTests(unittest.TestCase):
                 },
                 {
                     "attributes": {
-                        "address": "PoolHigh1111111111111111111111111111111",
+                        "address": "22222222222222222222222222222222",
                         "base_token_price_native_currency": "0.000002",
                         "quote_token_price_native_currency": "8",
                         "reserve_in_usd": "2500",
@@ -140,7 +140,7 @@ class PaperPriceFeedTests(unittest.TestCase):
         }
         mark = normalize_geckoterminal_pool_mark(payload, MINT, observed_at_ms=123456)
         self.assertEqual(mark["source"], "geckoterminal")
-        self.assertEqual(mark["pairAddress"], "PoolHigh1111111111111111111111111111111")
+        self.assertEqual(mark["pairAddress"], "22222222222222222222222222222222")
         self.assertEqual(mark["priceSol"], 0.000002)
         self.assertEqual(mark["liquidityUsd"], 2500)
         self.assertEqual(mark["observedAt"], 123456)
@@ -149,7 +149,7 @@ class PaperPriceFeedTests(unittest.TestCase):
         payload = {
             "data": [{
                 "attributes": {
-                    "address": "PoolInverse111111111111111111111111111111",
+                    "address": "33333333333333333333333333333333",
                     "base_token_price_native_currency": "12",
                     "quote_token_price_native_currency": "0.000003",
                     "reserve_in_usd": "1000",
@@ -167,7 +167,7 @@ class PaperPriceFeedTests(unittest.TestCase):
         payload = {
             "data": [
                 {
-                    "attributes": {"address": "PoolWrong111111111111111111111111111111",
+                    "attributes": {"address": "44444444444444444444444444444444",
                                    "base_token_price_native_currency": "0.000001",
                                    "reserve_in_usd": "5000"},
                     "relationships": {
@@ -176,7 +176,7 @@ class PaperPriceFeedTests(unittest.TestCase):
                     },
                 },
                 {
-                    "attributes": {"address": "PoolLow111111111111111111111111111111111",
+                    "attributes": {"address": "11111111111111111111111111111111",
                                    "base_token_price_native_currency": "0.000001",
                                    "reserve_in_usd": "499.99"},
                     "relationships": {
