@@ -469,16 +469,38 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 FEED_STATE["tradeStreamSource"] = None
                 FEED_STATE["subscribedMints"] = 0
 
+    async def paper_position_watchdog() -> None:
+        """Check open Paper positions independently of incoming trade events."""
+        while True:
+            try:
+                result = await supabase_request("POST", "rpc/sniper_paper_engine_sweep", payload={})
+                if isinstance(result, dict) and result.get("ok"):
+                    FEED_STATE["paperEngineLastSweepAt"] = int(time.time() * 1000)
+                    FEED_STATE["paperEngineLastSweep"] = {
+                        "checked": int(result.get("checked") or 0),
+                        "updated": int(result.get("updated") or 0),
+                        "closed": int(result.get("closed") or 0),
+                    }
+                    FEED_STATE["paperEngineStatus"] = "watchdog_active"
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                FEED_STATE["paperEngineStatus"] = "watchdog_error"
+                log.warning("[Sniper] Paper position watchdog failed (%s)", type(exc).__name__)
+            await asyncio.sleep(5)
+
     async def startup(application: web.Application) -> None:
         application["sniper_launch_feed_set_enabled"] = set_enabled
         application["sniper_launch_feed_task"] = asyncio.create_task(worker())
         application["pumpdev_trade_feed_task"] = asyncio.create_task(pumpdev_trade_worker())
-        log.info("[Sniper] Launch monitoring is OFF until enabled by the website button; PumpDev feed is separately opt-in")
+        application["sniper_paper_watchdog_task"] = asyncio.create_task(paper_position_watchdog())
+        log.info("[Sniper] Launch monitoring is OFF until enabled by the website button; Paper position watchdog runs independently")
 
     async def cleanup(application: web.Application) -> None:
         task = application.get("sniper_launch_feed_task")
         trade_task = application.get("pumpdev_trade_feed_task")
-        for running_task in (task, trade_task):
+        watchdog_task = application.get("sniper_paper_watchdog_task")
+        for running_task in (task, trade_task, watchdog_task):
             if running_task:
                 running_task.cancel()
                 try:
