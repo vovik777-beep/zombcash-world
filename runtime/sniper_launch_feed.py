@@ -243,8 +243,8 @@ def _normalize_pumpportal_trade_event(payload):
         return None
     sol_amount = _safe_number(payload.get("solAmount"))
     token_raw = _safe_number(payload.get("tokenAmount"))
-    # Provider payloads can represent token amounts as raw SPL units or UI units.
-    token_amount = token_raw / 1_000_000 if token_raw is not None and token_raw >= 1_000_000 else token_raw
+    # PumpPortal reports SPL token base units; normalize the mint's 6 decimals.
+    token_amount = token_raw / 1_000_000 if token_raw is not None else None
     v_sol_raw = _safe_number(payload.get("vSolInBondingCurve"))
     v_tokens_raw = _safe_number(payload.get("vTokensInBondingCurve"))
     v_sol = v_sol_raw / 1_000_000_000 if v_sol_raw is not None and v_sol_raw >= 1_000_000_000 else v_sol_raw
