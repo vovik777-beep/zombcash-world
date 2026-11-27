@@ -6,12 +6,23 @@ import logging
 import math
 import os
 import time
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType
 
 log = logging.getLogger("zombcash.sniper.helius")
 MINT_RE = __import__("re").compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+
+
+def _helius_rpc_url_from_env():
+    """Prefer an explicit RPC URL; otherwise build the public mainnet endpoint from a key."""
+    rpc_url = os.getenv("HELIUS_RPC_URL", "").strip()
+    if rpc_url and _helius_ws_url_from_rpc(rpc_url):
+        return rpc_url
+    api_key = os.getenv("HELIUS_API_KEY", "").strip()
+    if api_key:
+        return "https://mainnet.helius-rpc.com/?" + urlencode({"api-key": api_key})
+    return rpc_url
 
 
 def _helius_ws_url_from_rpc(rpc_url: str):
@@ -188,13 +199,13 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
     seen_signatures = set()
     while True:
         await launch_enabled.wait()
-        rpc_url = os.getenv("HELIUS_RPC_URL", "").strip()
+        rpc_url = _helius_rpc_url_from_env()
         ws_url = _helius_ws_url_from_rpc(rpc_url)
         if not ws_url:
             state.update({"heliusEnabled": False, "heliusConnected": False,
-                          "heliusError": "missing_or_invalid_helius_rpc_url"})
+                          "heliusError": "missing_or_invalid_helius_credentials"})
             if not state.get("heliusMissingKeyLogged"):
-                log.warning("[Sniper] Helius Standard WSS disabled: HELIUS_RPC_URL is not configured")
+                log.warning("[Sniper] Helius Standard WSS disabled: configure HELIUS_RPC_URL or HELIUS_API_KEY")
                 state["heliusMissingKeyLogged"] = True
             await asyncio.sleep(60)
             continue
