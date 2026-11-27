@@ -1,8 +1,8 @@
-"""Fail-closed orchestration for one authenticated Live order.
+"""Fail-closed orchestration for one managed-wallet Live order.
 
-This module is deliberately not wired to an API route yet. Live readiness remains
-false until transaction-fill accounting, position management, and recovery workers
-are implemented and tested end to end.
+Only the guarded Live entry/exit workers call this module. There is no public
+arbitrary-order route; database state, wallet binding, balance and chain checks
+are repeated before any broadcast.
 """
 from __future__ import annotations
 
