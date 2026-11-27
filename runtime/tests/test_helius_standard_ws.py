@@ -58,6 +58,21 @@ class HeliusStandardWsTests(unittest.TestCase):
         self.assertEqual(buy["tokenAmount"], 1)
         self.assertEqual(sell["tokenAmount"], 1)
 
+    def test_ignores_non_signer_pool_token_balance_delta(self):
+        tx = self._transaction("buy")
+        tx["transaction"]["message"]["accountKeys"].append({"pubkey": "CurveAuthority", "signer": False})
+        tx["meta"]["preTokenBalances"].append({
+            "mint": MINT, "owner": "CurveAuthority",
+            "uiTokenAmount": {"amount": "9000000", "decimals": 6, "uiAmountString": "9"},
+        })
+        tx["meta"]["postTokenBalances"].append({
+            "mint": MINT, "owner": "CurveAuthority",
+            "uiTokenAmount": {"amount": "8000000", "decimals": 6, "uiAmountString": "8"},
+        })
+        event = _normalize_helius_trade_event(tx, MINT)
+        self.assertIsNotNone(event)
+        self.assertEqual(event["trader"], "TraderWallet")
+
     def test_skips_new_token_accounts_and_failed_transactions(self):
         tx = self._transaction("buy")
         tx["meta"]["preTokenBalances"] = []
