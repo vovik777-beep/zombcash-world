@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _pumpdev_safe_subscription_limit, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
+from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _pumpdev_effective_api_key, _pumpdev_safe_subscription_limit, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -117,6 +117,11 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIn('"pumpdevStatus": "connected_anonymous"', source)
         self.assertIn('"pumpdevStatus": "connected" if status == "ok" else "connected_free"', source)
         self.assertIn('"paperEngineEnabled": False', source)
+
+    def test_pumpdev_uses_anonymous_free_tier_until_quota_reset(self):
+        self.assertEqual(_pumpdev_effective_api_key("configured-key", now=1797724799), "")
+        self.assertEqual(_pumpdev_effective_api_key("configured-key", now=1797724800), "configured-key")
+        self.assertEqual(_pumpdev_effective_api_key("", now=1797000000), "")
 
     def test_pumpdev_subscription_limit_tracks_effective_tier(self):
         self.assertEqual(_pumpdev_safe_subscription_limit(False), 4)

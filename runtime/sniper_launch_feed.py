@@ -75,6 +75,22 @@ async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asy
     return False
 
 
+# PumpDev account dashboard confirmed the free-key monthly trade quota is exhausted.
+# Use the documented anonymous tier (4 of 5 live subscriptions) until after the
+# account's displayed reset date; then automatically resume the configured free key.
+PUMPDEV_ANONYMOUS_FALLBACK_UNTIL_UTC = 1797724800  # 2026-12-20 00:00 UTC
+
+
+def _pumpdev_effective_api_key(configured_key: str, now=None) -> str:
+    key = str(configured_key or "").strip()
+    if not key:
+        return ""
+    current_time = time.time() if now is None else float(now)
+    if current_time < PUMPDEV_ANONYMOUS_FALLBACK_UNTIL_UTC:
+        return ""
+    return key
+
+
 def _pumpdev_safe_subscription_limit(api_key_present: bool, status=None, tier=None) -> int:
     """Stay below the effective PumpDev tier even when a configured key is rejected."""
     if not api_key_present:
@@ -237,7 +253,13 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         backoff = 30
         while True:
             await launch_enabled.wait()
-            api_key = os.getenv("PUMPDEV_API_KEY", "").strip()
+            configured_api_key = os.getenv("PUMPDEV_API_KEY", "").strip()
+            api_key = _pumpdev_effective_api_key(configured_api_key)
+            if configured_api_key and not api_key:
+                log.info(
+                    "[Sniper] PumpDev free-key quota is exhausted; using anonymous free tier "
+                    "until 2026-12-20 UTC (4 live trade subscriptions)",
+                )
             try:
                 # Hold each trade subscription for the full first-minute entry window.
                 # A FIFO queue prevents a burst of launches from immediately evicting
