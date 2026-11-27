@@ -58,8 +58,8 @@ FEED_STATE = {
     "pumpdevLastMarketEvent": None,
     "pumpdevTradeRejectReasons": {},
     "pumpdevTradePersistErrors": 0,
-    "pumpportalTradeEnabled": False,
-    "pumpportalTradeConnected": False,
+    "pumpPortalTradeEnabled": False,
+    "pumpPortalTradeConnected": False,
     "pumpportalTradeStatus": "disabled",
     "pumpportalTradeSubscriptions": 0,
     "pumpportalTradeEventsSeen": 0,
@@ -613,7 +613,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                         })
                         subscribed_mints = {}
                         expiry_tasks = set()
-                        FEED_STATE.update({"pumpportalTradeEnabled": bool(pumpportal_api_key), "pumpportalTradeConnected": bool(pumpportal_api_key), "pumpportalTradeStatus": "connected" if pumpportal_api_key else "launch_only_no_key", "pumpportalTradeLastError": None, "pumpportalTradeSubscriptions": 0})
+                        FEED_STATE.update({"pumpPortalTradeEnabled": bool(pumpportal_api_key), "pumpPortalTradeConnected": bool(pumpportal_api_key), "pumpportalTradeStatus": "connected" if pumpportal_api_key else "launch_only_no_key", "pumpportalTradeLastError": None, "pumpportalTradeSubscriptions": 0})
                         log.info("[Sniper] PumpPortal websocket connected; trade fallback=%s", "enabled" if pumpportal_api_key else "launch-only (API key not configured)")
                         await ws.send_json({"method": "subscribeNewToken"})
                         await ws.send_json({"method": "subscribeMigration"})
@@ -692,7 +692,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
             finally:
                 active_launch_ws = None
                 FEED_STATE["connected"] = False
-                FEED_STATE["pumpportalTradeConnected"] = False
+                FEED_STATE["pumpPortalTradeConnected"] = False
                 FEED_STATE["pumpportalTradeSubscriptions"] = 0
                 FEED_STATE["pumpportalTradeStatus"] = "stopped" if not launch_enabled.is_set() else "reconnecting"
                 FEED_STATE["tradeStreamingEnabled"] = False
