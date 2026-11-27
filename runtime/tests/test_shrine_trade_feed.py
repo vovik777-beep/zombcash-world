@@ -58,6 +58,25 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
             "timestamp": 1788976012,
         }))
 
+    def test_normalizes_sparse_sol_trade_using_metadata_quote(self):
+        event = normalize_shrine_trade({
+            "mint": MINT, "signature": "sparse-sol-buy", "is_buy": True,
+            "token_amount": 2000, "quote_amount": 0.12,
+            "timestamp": 1788976012,
+        }, quote_mint=SOL)
+        self.assertIsNotNone(event)
+        self.assertAlmostEqual(event["solAmount"], 0.12)
+        self.assertAlmostEqual(event["priceSol"], 0.00006)
+
+    def test_allows_missing_price_when_sol_amount_is_known(self):
+        event = normalize_shrine_trade({
+            "mint": MINT, "signature": "no-price-buy", "is_buy": True,
+            "token_amount": 500, "sol_amount": 0.025,
+            "timestamp": 1788976012,
+        })
+        self.assertIsNotNone(event)
+        self.assertAlmostEqual(event["priceSol"], 0.00005)
+
     def test_normalizes_sell(self):
         event = normalize_shrine_trade({
             "mint": MINT, "signature": "sell-signature", "is_buy": False,
