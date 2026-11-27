@@ -1,5 +1,20 @@
 -- Confirmed Live orders are not considered complete until their actual fills
 -- have been parsed and applied to the position ledger.
+ALTER TABLE sniper.live_orders
+  ADD COLUMN IF NOT EXISTS wallet_id uuid REFERENCES sniper.wallets(id);
+
+UPDATE sniper.live_orders o
+   SET wallet_id = (
+     select w.id from sniper.wallets w
+      where w.telegram_id = o.telegram_id
+        and w.status = 'active'
+        and w.custody_mode = 'managed'
+      order by w.created_at desc limit 1
+   )
+ where o.wallet_id is null;
+
+ALTER TABLE sniper.live_orders ALTER COLUMN wallet_id SET NOT NULL;
+
 ALTER TABLE sniper.positions
   ADD COLUMN IF NOT EXISTS initial_invested_sol numeric NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS realized_proceeds_sol numeric NOT NULL DEFAULT 0,
@@ -86,7 +101,35 @@ begin
     from sniper.user_settings
    where telegram_id = p_telegram_id
    for update;
-  if not found or not v_settings.enabled or v_settings.mode <> 'live'
+  if not found then raise exception 'live_user_settings_not_found'; end if;
+
+  -- Idempotent retries return the existing order and never repeat risk checks
+  -- or create a second order with the same client id.
+  select * into v_order
+    from sniper.live_orders
+   where client_order_id = p_client_order_id;
+  if found then
+    if v_order.telegram_id <> p_telegram_id
+       or v_order.mint <> p_mint
+       or v_order.side <> p_side
+       or v_order.amount <> p_amount
+       or v_order.amount_unit <> p_amount_unit then
+      raise exception 'live_order_idempotency_conflict';
+    end if;
+    return pg_catalog.jsonb_build_object(
+      'orderId', v_order.id,
+      'walletId', v_order.wallet_id,
+      'clientOrderId', v_order.client_order_id,
+      'mint', v_order.mint,
+      'side', v_order.side,
+      'amount', v_order.amount,
+      'amountUnit', v_order.amount_unit,
+      'status', v_order.status,
+      'signature', v_order.signature,
+      'createdAt', v_order.created_at
+    );
+  end if;
+  if not v_settings.enabled or v_settings.mode <> 'live'
      or not v_settings.live_armed or v_settings.live_confirmed_at is null then
     raise exception 'live_trading_not_armed';
   end if;
@@ -104,31 +147,6 @@ begin
     raise exception 'active_managed_wallet_required';
   end if;
 
-  -- Idempotent retries return the existing order and never repeat risk checks
-  -- or create a second order with the same client id.
-  select * into v_order
-    from sniper.live_orders
-   where client_order_id = p_client_order_id;
-  if found then
-    if v_order.telegram_id <> p_telegram_id
-       or v_order.mint <> p_mint
-       or v_order.side <> p_side
-       or v_order.amount <> p_amount
-       or v_order.amount_unit <> p_amount_unit then
-      raise exception 'live_order_idempotency_conflict';
-    end if;
-    return pg_catalog.jsonb_build_object(
-      'orderId', v_order.id,
-      'clientOrderId', v_order.client_order_id,
-      'mint', v_order.mint,
-      'side', v_order.side,
-      'amount', v_order.amount,
-      'amountUnit', v_order.amount_unit,
-      'status', v_order.status,
-      'signature', v_order.signature,
-      'createdAt', v_order.created_at
-    );
-  end if;
 
   if p_side = 'buy' then
     if p_amount > v_settings.max_trade_sol then
@@ -145,7 +163,12 @@ begin
       from sniper.live_orders o
      where o.telegram_id = p_telegram_id
        and o.side = 'buy'
-       and o.status in ('prepared','submitted','unknown');
+       and (
+         o.status in ('prepared','broadcasting','submitted','unknown')
+         or (o.status = 'confirmed' and not exists (
+           select 1 from sniper.live_order_fills f where f.order_id = o.id
+         ))
+       );
 
     if coalesce(v_open_count,0) + coalesce(v_pending_buys,0) >= v_settings.max_open_positions then
       raise exception 'live_max_open_positions_reached';
@@ -201,21 +224,27 @@ begin
        where o.telegram_id = p_telegram_id
          and o.mint = p_mint
          and o.side = 'sell'
-         and o.status in ('prepared','submitted','unknown')
+         and (
+           o.status in ('prepared','broadcasting','submitted','unknown')
+           or (o.status = 'confirmed' and not exists (
+             select 1 from sniper.live_order_fills f where f.order_id = o.id
+           ))
+         )
     ) then
       raise exception 'live_sell_already_pending';
     end if;
   end if;
 
   insert into sniper.live_orders (
-    telegram_id, client_order_id, mint, side, amount, amount_unit
+    telegram_id, wallet_id, client_order_id, mint, side, amount, amount_unit
   ) values (
-    p_telegram_id, p_client_order_id, p_mint, p_side, p_amount, p_amount_unit
+    p_telegram_id, v_wallet_id, p_client_order_id, p_mint, p_side, p_amount, p_amount_unit
   )
   returning * into v_order;
 
   return pg_catalog.jsonb_build_object(
     'orderId', v_order.id,
+    'walletId', v_order.wallet_id,
     'clientOrderId', v_order.client_order_id,
     'mint', v_order.mint,
     'side', v_order.side,
@@ -231,6 +260,46 @@ $function$;
 REVOKE ALL ON FUNCTION public.sniper_live_order_prepare(bigint,uuid,text,text,numeric,text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.sniper_live_order_prepare(bigint,uuid,text,text,numeric,text) TO service_role;
 
+
+CREATE OR REPLACE FUNCTION public.sniper_live_order_wallet_get(p_order_id uuid)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  select coalesce(
+    (select pg_catalog.jsonb_build_object(
+      'walletId',w.id,'publicKey',w.public_key,'status',w.status,'custodyMode',w.custody_mode
+    )
+    from sniper.live_orders o
+    join sniper.wallets w on w.id = o.wallet_id
+    where o.id = p_order_id),
+    '{}'::jsonb
+  );
+$function$;
+
+CREATE OR REPLACE FUNCTION public.sniper_live_order_wallet_secret(p_order_id uuid)
+RETURNS text
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $function$
+  select ds.decrypted_secret
+    from sniper.live_orders o
+    join sniper.wallets w on w.id = o.wallet_id
+    join vault.decrypted_secrets ds on ds.id = w.vault_secret_id
+   where o.id = p_order_id
+     and o.status = 'prepared'
+     and w.status = 'active'
+     and w.custody_mode = 'managed';
+$function$;
+
+REVOKE ALL ON FUNCTION public.sniper_live_order_wallet_get(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.sniper_live_order_wallet_get(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.sniper_live_order_wallet_secret(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.sniper_live_order_wallet_secret(uuid) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.sniper_live_position_apply_fill(
   p_order_id uuid,
@@ -291,16 +360,9 @@ begin
     );
   end if;
 
-  select id into v_wallet_id
-    from sniper.wallets
-   where telegram_id = v_order.telegram_id
-     and status = 'active'
-     and custody_mode = 'managed'
-     and vault_secret_id is not null
-   order by created_at desc
-   limit 1;
+  v_wallet_id := v_order.wallet_id;
   if v_wallet_id is null then
-    raise exception 'active_managed_wallet_required';
+    raise exception 'live_order_wallet_missing';
   end if;
 
   v_price := p_sol_amount / p_token_amount;
