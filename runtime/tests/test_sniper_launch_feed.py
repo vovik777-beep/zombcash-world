@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _safe_number
+from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _restore_paper_monitoring_opt_in, _safe_number
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -135,7 +135,35 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIn("while True:", worker)
         self.assertIn("await launch_enabled.wait()", worker)
         self.assertIn('os.getenv("PUMPDEV_API_KEY", "")', worker)
-        self.assertIn("backoff = min(backoff * 2, 120)", worker)
+        self.assertIn("backoff = min(backoff * 2, 300)", worker)
+
+class SniperMonitoringRestoreTests(unittest.IsolatedAsyncioTestCase):
+    async def test_restores_persisted_paper_opt_in(self):
+        event = asyncio.Event()
+        async def fake_supabase(method, path, *, payload=None):
+            self.assertEqual(method, "POST")
+            self.assertEqual(path, "rpc/sniper_any_paper_monitoring_enabled")
+            return True
+        restored = await _restore_paper_monitoring_opt_in(fake_supabase, event)
+        self.assertTrue(restored)
+        self.assertTrue(event.is_set())
+
+    async def test_keeps_feeds_stopped_when_no_paper_user_enabled(self):
+        event = asyncio.Event()
+        async def fake_supabase(method, path, *, payload=None):
+            return False
+        restored = await _restore_paper_monitoring_opt_in(fake_supabase, event)
+        self.assertFalse(restored)
+        self.assertFalse(event.is_set())
+
+    async def test_fails_closed_when_preference_lookup_fails(self):
+        event = asyncio.Event()
+        async def fake_supabase(method, path, *, payload=None):
+            raise RuntimeError("database unavailable")
+        restored = await _restore_paper_monitoring_opt_in(fake_supabase, event)
+        self.assertFalse(restored)
+        self.assertFalse(event.is_set())
+
 
 if __name__ == "__main__":
     unittest.main()
