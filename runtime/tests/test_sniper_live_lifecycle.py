@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from sniper_live_lifecycle import submit_live_order
+from sniper_live_lifecycle import reconcile_confirmed_live_orders, submit_live_order
 from sniper_execution import LiveExecutionDisabled, LiveExecutionError
 
 
@@ -37,6 +37,51 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 }
             raise AssertionError("unexpected RPC: " + path)
         return request, calls
+
+    async def test_reconciler_applies_confirmed_fill_once(self):
+        calls = []
+        async def request(method, path, payload=None):
+            calls.append((path, payload or {}))
+            if path == "rpc/sniper_live_unfilled_confirmed_orders":
+                return [{"order_id": "22222222-2222-4222-8222-222222222222", "signature": "sig", "mint": MINT, "side": "buy", "chain_slot": 123}]
+            if path == "rpc/sniper_live_order_wallet_get":
+                return {"publicKey": WALLET, "status": "inactive", "custodyMode": "managed"}
+            if path == "rpc/sniper_live_position_apply_fill":
+                return {"positionId": "44444444-4444-4444-8444-444444444444", "status": "open"}
+            raise AssertionError(path)
+        tx = {
+            "slot": 123, "blockTime": 1788976012,
+            "transaction": {"message": {"accountKeys": [WALLET, "22222222222222222222222222222222"]}},
+            "meta": {
+                "err": None, "fee": 5000,
+                "preBalances": [10_000_000_000, 0],
+                "postBalances": [8_997_955_720, 2_039_280],
+                "preTokenBalances": [],
+                "postTokenBalances": [{
+                    "accountIndex": 1, "mint": MINT, "owner": WALLET,
+                    "uiTokenAmount": {"amount": "1000", "decimals": 0, "uiAmountString": "1000"},
+                }],
+            },
+        }
+        async def fetcher(signature):
+            self.assertEqual(signature, "sig")
+            return tx
+        result = await reconcile_confirmed_live_orders(request, transaction_fetcher=fetcher)
+        self.assertEqual(result, {"checked": 1, "applied": 1, "pending": 0, "errors": 0})
+        apply_call = next(payload for path, payload in calls if path == "rpc/sniper_live_position_apply_fill")
+        self.assertEqual(apply_call["p_order_id"], "22222222-2222-4222-8222-222222222222")
+        self.assertEqual(apply_call["p_token_amount"], "1000")
+
+    async def test_reconciler_does_not_call_chain_when_no_confirmed_orders(self):
+        calls = []
+        async def request(method, path, payload=None):
+            calls.append(path)
+            return []
+        async def fetcher(signature):
+            raise AssertionError("no signatures to fetch")
+        result = await reconcile_confirmed_live_orders(request, transaction_fetcher=fetcher)
+        self.assertEqual(result, {"checked": 0, "applied": 0, "pending": 0, "errors": 0})
+        self.assertEqual(calls, ["rpc/sniper_live_unfilled_confirmed_orders"])
 
     async def test_global_flag_blocks_before_order_creation(self):
         request, calls = self.make_supabase()
