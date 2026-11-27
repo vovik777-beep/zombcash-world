@@ -66,6 +66,15 @@ async def _solana_rpc_call(method: str, params: list) -> Any:
         raise LiveExecutionError("solana_rpc_request_inconclusive") from exc
 
 
+async def fetch_signature_status(signature: str) -> dict | None:
+    if not isinstance(signature, str) or not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{80,100}", signature):
+        return None
+    result = await _solana_rpc_call("getSignatureStatuses", [[signature], {"searchTransactionHistory": True}])
+    values = result.get("value") if isinstance(result, dict) else None
+    if not isinstance(values, list) or not values or not isinstance(values[0], dict):
+        return None
+    return values[0]
+
 async def check_execution_rpc() -> bool:
     """Perform a minimal RPC preflight only when an operator is enabling Live."""
     try:
