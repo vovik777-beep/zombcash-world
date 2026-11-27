@@ -128,7 +128,7 @@ async def live_fill_reconciliation_worker(supabase_request, state):
             state['liveFillReconcilerStatus'] = 'error'
             state['liveFillReconcilerLastError'] = type(exc).__name__
             log.warning('[Sniper] Live fill reconciler failed (%s)', type(exc).__name__)
-        await asyncio.sleep(10)
+        await asyncio.sleep(15)
 
 async def submit_live_order(
     *,
