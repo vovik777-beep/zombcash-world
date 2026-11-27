@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, patch
 
 from sniper_execution import (
     LiveExecutionDisabled,
+    check_execution_rpc,
     build_pumpportal_trade_request,
     live_execution_enabled,
     live_execution_ready,
