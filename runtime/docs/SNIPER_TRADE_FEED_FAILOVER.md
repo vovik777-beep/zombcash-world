@@ -16,3 +16,11 @@ The launch API includes `pumpportalTradeEnabled`, `pumpportalTradeConnected`, `p
 
 ## Live trading
 This change only restores redundant market-data ingestion and paper-engine input. It does not arm real trading or change wallets, trade sizes, risk settings, or the global Live gate. The Live order lifecycle still requires explicit implementation and end-to-end validation before enabling real funds.
+
+## Free Shrine trade fallback
+- Shrine's keyless per-token Socket.IO `subscribe_trades` stream is used as a free independent trade source; it is not the paid Advanced Data Stream.
+- The worker follows newly detected mints for the same first-minute entry window, with at most 20 concurrent subscriptions.
+- Shrine's documented `trade` event is normalized from UI-unit `token_amount`, `sol_amount`, `price`, `is_buy`, `quote`, `timestamp`, and `signature`. Non-SOL quote trades are rejected.
+- Events are stored through the same signature-deduplicating `sniper_trade_upsert` RPC with source `shrine`.
+- The source uses one free Socket.IO connection per process. Its health is exposed as `shrineTradeStatus`, `shrineTradeSubscriptions`, and event/persistence counters.
+- The source is data-only. It does not enable Live trading or alter user risk settings.
