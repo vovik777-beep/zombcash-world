@@ -1,6 +1,8 @@
+import asyncio
 import unittest
 
-from shrine_trade_feed import normalize_shrine_trade
+from aiohttp import ClientConnectionError
+from shrine_trade_feed import _safe_ws_send, normalize_shrine_trade
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 SOL = "So11111111111111111111111111111111111111112"
@@ -104,3 +106,35 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeWebSocket:
+    def __init__(self, *, closed=False, error=None):
+        self.closed = closed
+        self.error = error
+        self.sent = []
+
+    async def send_str(self, payload):
+        if self.error:
+            raise self.error
+        self.sent.append(payload)
+
+
+class ShrineSafeSendTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sends_while_connection_is_open(self):
+        ws = FakeWebSocket()
+        result = await _safe_ws_send(ws, "42packet", asyncio.Lock())
+        self.assertTrue(result)
+        self.assertEqual(ws.sent, ["42packet"])
+
+    async def test_skips_closed_connection(self):
+        ws = FakeWebSocket(closed=True)
+        result = await _safe_ws_send(ws, "42packet", asyncio.Lock())
+        self.assertFalse(result)
+        self.assertEqual(ws.sent, [])
+
+    async def test_swallows_disconnect_race_without_unhandled_task_error(self):
+        ws = FakeWebSocket(error=ClientConnectionError("closed during send"))
+        result = await _safe_ws_send(ws, "42packet", asyncio.Lock())
+        self.assertFalse(result)
+        self.assertEqual(ws.sent, [])
