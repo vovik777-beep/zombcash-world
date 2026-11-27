@@ -1,6 +1,7 @@
 import os
 import unittest
-from unittest.mock import patch
+import asyncio
+from unittest.mock import AsyncMock, patch
 
 from sniper_execution import (
     LiveExecutionDisabled,
@@ -71,6 +72,14 @@ class SniperExecutionTests(unittest.TestCase):
         }, clear=True):
             self.assertTrue(live_execution_ready())
             self.assertFalse(live_execution_enabled())
+
+    def test_execution_rpc_preflight_requires_a_valid_slot(self):
+        with patch("sniper_execution._solana_rpc_call", new=AsyncMock(return_value=123456)):
+            self.assertTrue(asyncio.run(check_execution_rpc()))
+        with patch("sniper_execution._solana_rpc_call", new=AsyncMock(return_value=None)):
+            self.assertFalse(asyncio.run(check_execution_rpc()))
+        with patch("sniper_execution._solana_rpc_call", new=AsyncMock(side_effect=RuntimeError("offline"))):
+            self.assertFalse(asyncio.run(check_execution_rpc()))
 
     def test_code_readiness_requires_an_https_execution_rpc(self):
         with patch.dict(os.environ, {
