@@ -12,7 +12,7 @@ class HeliusStandardWsTests(unittest.TestCase):
             pre_tokens, post_tokens = "1000000", "2000000"
             pre_ui, post_ui = "1", "2"
         else:
-            pre_lamports, post_lamports = 1_899_995_000, 2_000_000_000
+            pre_lamports, post_lamports = 1_899_995_000, 1_999_990_000
             pre_tokens, post_tokens = "2000000", "1000000"
             pre_ui, post_ui = "2", "1"
         return {
