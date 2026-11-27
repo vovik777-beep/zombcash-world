@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _restore_paper_monitoring_opt_in, _safe_number
+from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -138,6 +138,16 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIn("backoff = min(backoff * 2, 300)", worker)
 
 class SniperMonitoringRestoreTests(unittest.IsolatedAsyncioTestCase):
+    async def test_aggregate_opt_in_reads_true_without_user_data(self):
+        async def fake_supabase(method, path, *, payload=None):
+            return True
+        self.assertTrue(await _read_paper_monitoring_opt_in(fake_supabase))
+
+    async def test_aggregate_opt_in_fails_closed_on_database_error(self):
+        async def fake_supabase(method, path, *, payload=None):
+            raise RuntimeError("database unavailable")
+        self.assertIsNone(await _read_paper_monitoring_opt_in(fake_supabase))
+
     async def test_restores_persisted_paper_opt_in(self):
         event = asyncio.Event()
         async def fake_supabase(method, path, *, payload=None):
