@@ -112,12 +112,16 @@ async def paper_price_mark_worker(supabase_request, state):
                         if mark is None:
                             no_pair += 1
                         else:
-                            await supabase_request(
+                            saved = await supabase_request(
                                 "POST",
                                 "rpc/sniper_paper_price_mark_upsert",
                                 payload={"p_mark": mark},
                             )
-                            updated += 1
+                            if not isinstance(saved, dict) or saved.get("ok") is not True:
+                                errors += 1
+                                log.warning("[Sniper] Paper price mark rejected by Supabase validation")
+                            else:
+                                updated += 1
                     except asyncio.CancelledError:
                         raise
                     except Exception as exc:
