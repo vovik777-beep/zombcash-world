@@ -284,9 +284,14 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         except Exception as exc:
                                             FEED_STATE["pumpdevLastError"] = type(exc).__name__
                                             log.warning("[Sniper] PumpDev launch persist failed (%s)", type(exc).__name__)
-                                    if MINT_RE.fullmatch(mint) and mint not in active and mint not in pending:
-                                        pending.append(mint)
                                     now_ms = int(time.time() * 1000)
+                                    pending_mints = {item[0] for item in pending}
+                                    if MINT_RE.fullmatch(mint) and mint not in active and mint not in pending_mints:
+                                        pending.append((mint, now_ms))
+                                    # A queued launch is useful only inside the same first-minute
+                                    # window as the Paper entry rule; never subscribe to stale backlog.
+                                    pending = [(queued_mint, queued_at) for queued_mint, queued_at in pending
+                                               if now_ms - queued_at < 60_000]
                                     expired = [key for key, started_ms in active.items()
                                                if now_ms - started_ms >= 60_000]
                                     for old_mint in expired:
@@ -294,7 +299,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         active.pop(old_mint, None)
                                     max_subs = 25 if api_key else 5
                                     while pending and len(active) < max_subs:
-                                        next_mint = pending.pop(0)
+                                        next_mint, queued_at = pending.pop(0)
+                                        if now_ms - queued_at >= 60_000:
+                                            continue
                                         active[next_mint] = now_ms
                                         await ws.send_json({"method": "subscribeTokenTrade", "keys": [next_mint]})
                                     FEED_STATE["pumpdevSubscribedMints"] = len(active)
