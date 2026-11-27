@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from sniper_live_lifecycle import reconcile_confirmed_live_orders, submit_live_order
+from sniper_live_lifecycle import reconcile_confirmed_live_orders, reconcile_unknown_live_orders, submit_live_order
 from sniper_execution import LiveExecutionDisabled, LiveExecutionError
 
 
@@ -37,6 +37,52 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 }
             raise AssertionError("unexpected RPC: " + path)
         return request, calls
+
+    async def test_unknown_reconciler_promotes_confirmed_signature_without_resending(self):
+        calls = []
+        async def request(method, path, payload=None):
+            calls.append((path, payload or {}))
+            if path == "rpc/sniper_live_unknown_orders":
+                return [{"order_id": "22222222-2222-4222-8222-222222222222", "signature": "sig"}]
+            if path == "rpc/sniper_live_order_transition":
+                return {"status": payload["p_status"], "signature": payload["p_signature"]}
+            raise AssertionError(path)
+        async def status_fetcher(signature):
+            self.assertEqual(signature, "sig")
+            return {"err": None, "confirmationStatus": "confirmed", "slot": 321}
+        result = await reconcile_unknown_live_orders(request, signature_status_fetcher=status_fetcher)
+        self.assertEqual(result, {"checked": 1, "confirmed": 1, "failed": 0, "pending": 0, "errors": 0})
+        transition = next(payload for path, payload in calls if path == "rpc/sniper_live_order_transition")
+        self.assertEqual(transition["p_status"], "confirmed")
+        self.assertEqual(transition["p_chain_slot"], 321)
+
+    async def test_unknown_reconciler_marks_failed_chain_transaction(self):
+        calls = []
+        async def request(method, path, payload=None):
+            calls.append((path, payload or {}))
+            if path == "rpc/sniper_live_unknown_orders":
+                return [{"order_id": "22222222-2222-4222-8222-222222222222", "signature": "sig"}]
+            return {"status": "failed"}
+        async def status_fetcher(signature):
+            return {"err": {"InstructionError": [0, "Custom"]}, "confirmationStatus": "confirmed", "slot": 321}
+        result = await reconcile_unknown_live_orders(request, signature_status_fetcher=status_fetcher)
+        self.assertEqual(result["failed"], 1)
+        transition = next(payload for path, payload in calls if path == "rpc/sniper_live_order_transition")
+        self.assertEqual(transition["p_status"], "failed")
+        self.assertEqual(transition["p_error_code"], "chain_transaction_failed")
+
+    async def test_unknown_reconciler_keeps_processed_signature_pending(self):
+        calls = []
+        async def request(method, path, payload=None):
+            calls.append(path)
+            if path == "rpc/sniper_live_unknown_orders":
+                return [{"order_id": "22222222-2222-4222-8222-222222222222", "signature": "sig"}]
+            raise AssertionError(path)
+        async def status_fetcher(signature):
+            return {"err": None, "confirmationStatus": "processed", "slot": 321}
+        result = await reconcile_unknown_live_orders(request, signature_status_fetcher=status_fetcher)
+        self.assertEqual(result["pending"], 1)
+        self.assertEqual(calls, ["rpc/sniper_live_unknown_orders"])
 
     async def test_reconciler_applies_confirmed_fill_once(self):
         calls = []
