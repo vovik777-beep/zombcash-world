@@ -9,6 +9,7 @@ import re
 import time
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
+from helius_standard_ws import helius_trade_worker
 
 log = logging.getLogger("zombcash.sniper.launches")
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -216,6 +217,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
     launch_enabled = asyncio.Event()
     active_launch_ws = None
     active_pumpdev_ws = None
+    helius_active_mints = {}
+    helius_mints_changed = asyncio.Event()
 
     async def set_enabled(enabled: bool) -> None:
         nonlocal active_launch_ws, active_pumpdev_ws
@@ -236,6 +239,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
             log.info("[Sniper] Launch monitoring active from persisted Paper-mode user settings")
             return
         launch_enabled.clear()
+        helius_active_mints.clear()
+        helius_mints_changed.set()
         FEED_STATE["paperEngineEnabled"] = False
         for ws in (active_launch_ws, active_pumpdev_ws):
             if ws is not None and not ws.closed:
@@ -377,12 +382,16 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     for old_mint in expired:
                                         await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old_mint]})
                                         active.pop(old_mint, None)
+                                        helius_active_mints.pop(old_mint, None)
+                                        helius_mints_changed.set()
                                     max_subs = subscription_limit
                                     while pending and len(active) < max_subs:
                                         next_mint, queued_at = pending.pop(0)
                                         if now_ms - queued_at >= 60_000:
                                             continue
                                         active[next_mint] = now_ms
+                                        helius_active_mints[next_mint] = now_ms
+                                        helius_mints_changed.set()
                                         await ws.send_json({"method": "subscribeTokenTrade", "keys": [next_mint]})
                                     FEED_STATE["pumpdevSubscribedMints"] = len(active)
                                     FEED_STATE["pumpdevPendingMints"] = len(pending)
@@ -483,6 +492,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     backoff = min(backoff * 2, 300)
             finally:
                 active_pumpdev_ws = None
+                helius_active_mints.clear()
+                helius_mints_changed.set()
                 FEED_STATE.update({"pumpdevConnected": False, "pumpdevSubscribedMints": 0,
                     "pumpdevStatus": "stopped" if not launch_enabled.is_set() else FEED_STATE.get("pumpdevStatus", "reconnecting")})
                 if not launch_enabled.is_set():
@@ -592,6 +603,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         restored = await _restore_paper_monitoring_opt_in(supabase_request, launch_enabled)
         application["sniper_launch_feed_task"] = asyncio.create_task(worker())
         application["pumpdev_trade_feed_task"] = asyncio.create_task(pumpdev_trade_worker())
+        application["helius_trade_feed_task"] = asyncio.create_task(
+            helius_trade_worker(launch_enabled, helius_active_mints, helius_mints_changed, supabase_request, FEED_STATE)
+        )
         application["sniper_paper_watchdog_task"] = asyncio.create_task(paper_position_watchdog())
         if restored:
             log.info("[Sniper] Restored launch monitoring from persisted Paper-mode user settings")
@@ -602,7 +616,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         task = application.get("sniper_launch_feed_task")
         trade_task = application.get("pumpdev_trade_feed_task")
         watchdog_task = application.get("sniper_paper_watchdog_task")
-        for running_task in (task, trade_task, watchdog_task):
+        helius_task = application.get("helius_trade_feed_task")
+        for running_task in (task, trade_task, helius_task, watchdog_task):
             if running_task:
                 running_task.cancel()
                 try:
@@ -638,7 +653,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "heliusEnabled": bool(FEED_STATE["heliusEnabled"]),
                     "heliusConnected": bool(FEED_STATE["heliusConnected"]),
                     "heliusConnectedAt": FEED_STATE["heliusConnectedAt"],
-                    "heliusError": "LIVE_EXECUTION_ONLY",
+                    "heliusError": FEED_STATE.get("heliusError"),
                     "heliusLastSignature": FEED_STATE["heliusLastSignature"],
                     "heliusPendingWrites": int(FEED_STATE.get("heliusPendingWrites", 0)),
                     "heliusPersistErrors": int(FEED_STATE.get("heliusPersistErrors", 0)),
