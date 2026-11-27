@@ -62,6 +62,13 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
     tx = transaction_result.get("transaction")
     if not isinstance(meta, dict) or meta.get("err") is not None or not isinstance(tx, dict):
         return None
+    logs = meta.get("logMessages")
+    if not isinstance(logs, list) or not any(
+        marker in str(line).lower()
+        for line in logs
+        for marker in ("instruction: buy", "instruction: sell", "instruction: swap")
+    ):
+        return None
     message = tx.get("message")
     if not isinstance(message, dict):
         return None
