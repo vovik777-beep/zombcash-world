@@ -50,20 +50,27 @@ FEED_STATE = {
 }
 
 
-async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asyncio.Event) -> bool:
-    """Restore the persisted Paper-mode opt-in after an API process restart."""
+async def _read_paper_monitoring_opt_in(supabase_request):
+    """Read the aggregate Paper-mode opt-in without exposing individual users."""
     try:
         enabled = await supabase_request(
             "POST", "rpc/sniper_any_paper_monitoring_enabled", payload={}
         )
     except Exception as exc:
         log.warning(
-            "[Sniper] Could not restore persisted monitoring preference (%s); keeping feeds stopped",
+            "[Sniper] Could not read persisted monitoring preference (%s)",
             type(exc).__name__,
         )
-        return False
-    if enabled is True:
+        return None
+    return enabled is True
+
+
+async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asyncio.Event) -> bool:
+    """Restore the persisted Paper-mode opt-in after an API process restart."""
+    enabled = await _read_paper_monitoring_opt_in(supabase_request)
+    if enabled:
         launch_enabled.set()
+        FEED_STATE["paperEngineEnabled"] = True
         return True
     return False
 
@@ -183,16 +190,29 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
 
     async def set_enabled(enabled: bool) -> None:
         nonlocal active_launch_ws, active_pumpdev_ws
-        if enabled:
+        persisted = await _read_paper_monitoring_opt_in(supabase_request)
+        if persisted is None:
+            # If the database cannot confirm a new opt-in, do not start new feeds.
+            # An explicit opt-out still stops this process immediately.
+            if enabled:
+                return
+            effective_enabled = False
+        else:
+            # Feeds are shared by all registered users: one user's opt-out must not
+            # stop monitoring while another Paper-mode user remains opted in.
+            effective_enabled = persisted
+        if effective_enabled:
             launch_enabled.set()
-            log.info("[Sniper] Launch monitoring enabled from website")
+            FEED_STATE["paperEngineEnabled"] = True
+            log.info("[Sniper] Launch monitoring active from persisted Paper-mode user settings")
             return
         launch_enabled.clear()
+        FEED_STATE["paperEngineEnabled"] = False
         for ws in (active_launch_ws, active_pumpdev_ws):
             if ws is not None and not ws.closed:
                 await ws.close()
         FEED_STATE.update({"connected": False, "lastError": None})
-        log.info("[Sniper] Launch monitoring stopped from website")
+        log.info("[Sniper] Launch monitoring stopped; no Paper-mode users remain opted in")
 
     async def persist_launch(event: dict) -> None:
         await supabase_request("POST", "rpc/sniper_launch_upsert", payload={"p_event": event})
