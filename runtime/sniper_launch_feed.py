@@ -57,6 +57,13 @@ FEED_STATE = {
     "pumpdevLastMarketEvent": None,
     "pumpdevTradeRejectReasons": {},
     "pumpdevTradePersistErrors": 0,
+    "pumpportalTradeEnabled": False,
+    "pumpportalTradeConnected": False,
+    "pumpportalTradeStatus": "disabled",
+    "pumpportalTradeSubscriptions": 0,
+    "pumpportalTradeEventsSeen": 0,
+    "pumpportalTradePersistErrors": 0,
+    "pumpportalTradeLastError": None,
 }
 
 
@@ -221,6 +228,56 @@ def _normalize_pumpdev_trade_event(payload):
             "vSolInBondingCurve": v_sol, "vTokensInBondingCurve": v_tokens,
             "eventAt": event_at, "trader": str(payload.get("traderPublicKey") or "")[:64] or None,
             "source": "pumpdev"}
+
+
+def _normalize_pumpportal_trade_event(payload):
+    """Normalize PumpPortal trade payloads to the shared on-chain trade schema."""
+    if not isinstance(payload, dict) or str(payload.get("txType") or "").lower() not in {"buy", "sell"}:
+        return None
+    mint = str(payload.get("mint") or "").strip()
+    signature = str(payload.get("signature") or "").strip()
+    if not MINT_RE.fullmatch(mint) or not signature:
+        return None
+    if payload.get("quoteMint") and payload.get("quoteMint") != PUMPDEV_SOL_MINT:
+        return None
+    sol_amount = _safe_number(payload.get("solAmount"))
+    token_raw = _safe_number(payload.get("tokenAmount"))
+    # Provider payloads can represent token amounts as raw SPL units or UI units.
+    token_amount = token_raw / 1_000_000 if token_raw is not None and token_raw >= 1_000_000 else token_raw
+    v_sol_raw = _safe_number(payload.get("vSolInBondingCurve"))
+    v_tokens_raw = _safe_number(payload.get("vTokensInBondingCurve"))
+    v_sol = v_sol_raw / 1_000_000_000 if v_sol_raw is not None and v_sol_raw >= 1_000_000_000 else v_sol_raw
+    v_tokens = v_tokens_raw / 1_000_000 if v_tokens_raw is not None and v_tokens_raw >= 1_000_000 else v_tokens_raw
+    if str(payload.get("pool") or payload.get("source") or "").lower() in {"pumpswap", "pump-amm"}:
+        quote = _safe_number(payload.get("poolEffectiveQuoteReservesUi"))
+        if quote is None:
+            quote = _safe_number(payload.get("poolEffectiveQuoteReserves"))
+            quote = quote / 1_000_000_000 if quote is not None else None
+        base = _safe_number(payload.get("poolBaseReservesUi"))
+        if base is None:
+            base = _safe_number(payload.get("poolBaseReserves"))
+            base = base / 1_000_000 if base is not None else None
+        v_sol, v_tokens = quote, base
+    if sol_amount is None or sol_amount <= 0 or token_amount is None or token_amount <= 0:
+        return None
+    if v_sol is None or v_sol <= 0 or v_tokens is None or v_tokens <= 0:
+        # Derive price from trade amounts when reserve fields are absent.
+        price = sol_amount / token_amount
+        v_sol, v_tokens = price, 1.0
+    else:
+        price = v_sol / v_tokens
+    if not math.isfinite(price) or price <= 0:
+        return None
+    stamp = _safe_number(payload.get("timestamp"))
+    event_at = int(time.time() * 1000) if stamp is None or stamp <= 0 else int(stamp * 1000 if stamp < 1_000_000_000_000 else stamp)
+    return {
+        "mint": mint, "signature": signature[:128], "side": str(payload["txType"]).lower(),
+        "solAmount": sol_amount, "tokenAmount": token_amount, "priceSol": price,
+        "marketCapSol": _safe_number(payload.get("marketCapSol")),
+        "vSolInBondingCurve": v_sol, "vTokensInBondingCurve": v_tokens,
+        "eventAt": event_at, "trader": str(payload.get("traderPublicKey") or "")[:64] or None,
+        "source": "pumpportal",
+    }
 
 
 def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_origin: str) -> None:
