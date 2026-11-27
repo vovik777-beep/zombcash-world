@@ -96,9 +96,9 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 return {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
             if path == "rpc/sniper_live_order_prepare":
                 return {"orderId": "22222222-2222-4222-8222-222222222222", "status": "prepared"}
-            if path == "rpc/sniper_wallet_get":
+            if path == "rpc/sniper_live_order_wallet_get":
                 return {"publicKey": WALLET, "status": "active"}
-            if path == "rpc/sniper_wallet_secret":
+            if path == "rpc/sniper_live_order_wallet_secret":
                 return SECRET
             if path == "rpc/sniper_live_order_transition":
                 raise RuntimeError("database unavailable")
