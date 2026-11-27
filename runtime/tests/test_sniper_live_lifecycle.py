@@ -16,6 +16,8 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         calls = []
         async def request(method, path, payload=None):
             calls.append((path, payload or {}))
+            if path == "rpc/sniper_user_settings_get":
+                return {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
             if path == "rpc/sniper_live_order_prepare":
                 return {"orderId": "22222222-2222-4222-8222-222222222222", "status": prepared_status}
             if path == "rpc/sniper_wallet_get":
@@ -39,7 +41,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(LiveExecutionDisabled):
                 await submit_live_order(
                     telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                    amount=0.01, max_slippage_bps=300, supabase_request=request,
+                    amount=0.01, supabase_request=request,
                 )
         self.assertEqual(calls, [])
 
@@ -50,7 +52,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, max_slippage_bps=300, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor,
             )
         self.assertEqual(result["status"], "broadcasting")
         self.assertTrue(result["reused"])
@@ -65,7 +67,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, max_slippage_bps=300, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "submitted", "confirmed"])
@@ -80,7 +82,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, max_slippage_bps=300, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "unknown"])
@@ -94,7 +96,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, max_slippage_bps=300, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "failed"])
