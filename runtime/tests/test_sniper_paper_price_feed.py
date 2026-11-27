@@ -10,6 +10,7 @@ from sniper_paper_price_feed import (
     normalize_geckoterminal_pool_mark,
     paper_price_mark_worker,
     select_gecko_pool_mints,
+    _save_price_mark,
 )
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -242,8 +243,45 @@ class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(asyncio.CancelledError):
                 await paper_price_mark_worker(supabase_request, state)
 
-        self.assertEqual(calls, [("POST", "rpc/sniper_open_paper_position_mints", {}, None)])
+        self.assertEqual(calls, [
+            ("POST", "rpc/sniper_open_paper_position_mints", {}, None),
+            ("POST", "rpc/sniper_open_live_position_mints", {}, None),
+        ])
         self.assertEqual(state["paperPriceFeedStatus"], "waiting_for_open_positions")
+
+
+class LivePositionMarkTests(unittest.IsolatedAsyncioTestCase):
+    async def test_shared_mark_updates_live_position_valuation(self):
+        calls = []
+        async def supabase_request(method, path, *, payload=None, params=None):
+            calls.append((method, path, payload))
+            if path == "rpc/sniper_paper_price_mark_upsert":
+                return {"ok": True}
+            if path == "rpc/sniper_live_position_mark":
+                self.assertEqual(payload["p_mint"], MINT)
+                self.assertEqual(payload["p_price_sol"], 0.0002)
+                self.assertTrue(payload["p_observed_at"].startswith("2026-09-09"))
+                return 2
+            raise AssertionError(path)
+        mark = {"mint": MINT, "source": "dexscreener", "priceSol": 0.0002,
+                "liquidityUsd": 1000, "pairAddress": "pair", "observedAt": 1788976012000}
+        saved, live_updated = await _save_price_mark(supabase_request, mark)
+        self.assertTrue(saved)
+        self.assertTrue(live_updated)
+        self.assertEqual([call[1] for call in calls], [
+            "rpc/sniper_paper_price_mark_upsert", "rpc/sniper_live_position_mark"
+        ])
+
+    async def test_live_mark_is_not_called_when_shared_mark_rejected(self):
+        calls = []
+        async def supabase_request(method, path, *, payload=None, params=None):
+            calls.append(path)
+            return {"ok": False}
+        mark = {"mint": MINT, "priceSol": 0.0002, "observedAt": 1788976012000}
+        saved, live_updated = await _save_price_mark(supabase_request, mark)
+        self.assertFalse(saved)
+        self.assertFalse(live_updated)
+        self.assertEqual(calls, ["rpc/sniper_paper_price_mark_upsert"])
 
 
 if __name__ == "__main__":
