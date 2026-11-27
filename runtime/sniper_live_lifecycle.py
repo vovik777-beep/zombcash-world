@@ -116,7 +116,7 @@ async def reconcile_confirmed_live_orders(supabase_request, *, transaction_fetch
 async def live_fill_reconciliation_worker(supabase_request, state):
     while True:
         try:
-            result = await reconcile_confirmed_live_orders(supabase_request)
+            result = await reconcile_confirmed_live_orders(supabase_request, limit=5)
             state['liveFillReconcilerStatus'] = 'active' if result['checked'] else 'idle'
             state['liveFillReconcilerLastAt'] = int(time.time() * 1000)
             state['liveFillReconcilerLastSweep'] = result
