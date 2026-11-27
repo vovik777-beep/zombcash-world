@@ -99,7 +99,7 @@ async def reconcile_unknown_live_orders(supabase_request, *, signature_status_fe
                 pending += 1
                 continue
             slot = chain_status.get("slot") if isinstance(chain_status.get("slot"), int) else None
-            await _transition(supabase_request, order_id, classified, signature=signature, error_code="chain_transaction_failed" if classified == "failed" else None, slot=slot)
+            await _transition(supabase_request, order_id, classified, signature=signature, error_code="chain_transaction_failed" if classified == "failed" else None, chain_slot=slot)
             if classified == "confirmed":
                 confirmed += 1
             else:
