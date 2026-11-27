@@ -96,7 +96,6 @@ async def reconcile_unknown_live_orders(supabase_request, *, signature_status_fe
             chain_status = await signature_status_fetcher(signature)
             classified = classify_signature_status(chain_status)
             if classified not in {"confirmed", "failed"}:
-                await supabase_request("POST", "rpc/sniper_live_order_unknown_reconciliation_touch", payload={"p_order_id": order_id})
                 pending += 1
                 continue
             slot = chain_status.get("slot") if isinstance(chain_status.get("slot"), int) else None
@@ -107,50 +106,60 @@ async def reconcile_unknown_live_orders(supabase_request, *, signature_status_fe
                 failed += 1
         except Exception as exc:
             errors += 1
+            log.warning("Unknown Live order reconciliation failed (%s)", type(exc).__name__)
+        finally:
             try:
                 await supabase_request("POST", "rpc/sniper_live_order_unknown_reconciliation_touch", payload={"p_order_id": order_id})
             except Exception:
                 pass
-            log.warning("Unknown Live order reconciliation failed (%s)", type(exc).__name__)
     return {"checked": checked, "confirmed": confirmed, "failed": failed, "pending": pending, "errors": errors}
 
-async def reconcile_confirmed_live_orders(supabase_request, *, transaction_fetcher=fetch_confirmed_transaction, limit=20):
-    rows = await supabase_request('POST', 'rpc/sniper_live_unfilled_confirmed_orders', payload={})
+async def reconcile_confirmed_live_orders(supabase_request, *, transaction_fetcher=fetch_confirmed_transaction, limit=5):
+    rows = await supabase_request("POST", "rpc/sniper_live_unfilled_confirmed_orders", payload={})
     if not isinstance(rows, list):
-        return {'checked': 0, 'applied': 0, 'pending': 0, 'errors': 1}
+        return {"checked": 0, "applied": 0, "pending": 0, "errors": 1}
     checked = applied = pending = errors = 0
-    for order in rows[:max(1, min(int(limit), 100))]:
+    for order in rows[:max(1, min(int(limit), 20))]:
         if not isinstance(order, dict):
             continue
         checked += 1
-        order_id = str(order.get('order_id') or '')
-        signature = str(order.get('signature') or '')
-        mint = str(order.get('mint') or '')
-        side = str(order.get('side') or '')
-        if not order_id or not signature or not mint or side not in {'buy', 'sell'}:
+        order_id = str(order.get("order_id") or "")
+        signature = str(order.get("signature") or "")
+        mint = str(order.get("mint") or "")
+        side = str(order.get("side") or "")
+        if not order_id or not signature or not mint or side not in {"buy", "sell"}:
             errors += 1
             continue
         try:
-            wallet = await supabase_request('POST', 'rpc/sniper_live_order_wallet_get', payload={'p_order_id': order_id})
-            if not isinstance(wallet, dict) or not wallet.get('publicKey'):
+            wallet = await supabase_request("POST", "rpc/sniper_live_order_wallet_get", payload={"p_order_id": order_id})
+            if not isinstance(wallet, dict) or not wallet.get("publicKey"):
                 errors += 1
                 continue
+            if transaction_fetcher is fetch_confirmed_transaction:
+                async def fetch_once(sig):
+                    return await fetch_confirmed_transaction(sig, attempts=1)
+                fetcher = fetch_once
+            else:
+                fetcher = transaction_fetcher
             filled = await _apply_confirmed_fill(
-                supabase_request, order_id=order_id, wallet_public_key=str(wallet['publicKey']),
+                supabase_request, order_id=order_id, wallet_public_key=str(wallet["publicKey"]),
                 mint=mint, side=side, signature=signature,
-                chain_slot=order.get('chain_slot') if isinstance(order.get('chain_slot'), int) else None,
-                transaction_fetcher=transaction_fetcher,
+                chain_slot=order.get("chain_slot") if isinstance(order.get("chain_slot"), int) else None,
+                transaction_fetcher=fetcher,
             )
-            await supabase_request("POST", "rpc/sniper_live_order_fill_reconciliation_touch", payload={"p_order_id": order_id})
             if filled:
                 applied += 1
             else:
                 pending += 1
         except Exception as exc:
             errors += 1
-            log.warning('Live fill reconciliation failed (%s)', type(exc).__name__)
-    return {'checked': checked, 'applied': applied, 'pending': pending, 'errors': errors}
-
+            log.warning("Live fill reconciliation failed (%s)", type(exc).__name__)
+        finally:
+            try:
+                await supabase_request("POST", "rpc/sniper_live_order_fill_reconciliation_touch", payload={"p_order_id": order_id})
+            except Exception:
+                pass
+    return {"checked": checked, "applied": applied, "pending": pending, "errors": errors}
 
 async def live_fill_reconciliation_worker(supabase_request, state):
     while True:
