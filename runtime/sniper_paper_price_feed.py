@@ -22,6 +22,16 @@ POLL_INTERVAL_SECONDS = 60.0
 REQUEST_SPACING_SECONDS = 1.1
 
 
+def select_gecko_pool_mints(mints, offset=0, limit=MAX_GECKO_POOL_LOOKUPS_PER_CYCLE):
+    """Select a bounded, duplicate-free round-robin slice of unpriced mints."""
+    if not mints:
+        return [], 0
+    count = min(len(mints), max(0, int(limit)))
+    start = int(offset) % len(mints)
+    selected = [mints[(start + index) % len(mints)] for index in range(count)]
+    return selected, (start + count) % len(mints)
+
+
 def _number(value):
     try:
         result = float(value)
@@ -318,12 +328,12 @@ async def paper_price_mark_worker(supabase_request, state):
                     # The simple batch index can omit long-tail Solana tokens. Query token pools
                     # directly, but cap this to four per minute to stay comfortably below the
                     # public GeckoTerminal rate limit even when the open-position set grows.
-                    offset = int(state.get("paperPriceFeedGeckoOffset", 0)) % len(gecko_mints)
-                    pool_mints = (
-                        gecko_mints[offset:offset + MAX_GECKO_POOL_LOOKUPS_PER_CYCLE]
-                        + gecko_mints[:max(0, offset + MAX_GECKO_POOL_LOOKUPS_PER_CYCLE - len(gecko_mints))]
+                    pool_mints, next_offset = select_gecko_pool_mints(
+                        gecko_mints,
+                        state.get("paperPriceFeedGeckoOffset", 0),
+                        MAX_GECKO_POOL_LOOKUPS_PER_CYCLE,
                     )
-                    state["paperPriceFeedGeckoOffset"] = (offset + len(pool_mints)) % len(gecko_mints)
+                    state["paperPriceFeedGeckoOffset"] = next_offset
                     state["paperPriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
                     for index, mint in enumerate(pool_mints):
                         try:
