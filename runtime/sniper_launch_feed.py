@@ -13,6 +13,7 @@ from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 from helius_standard_ws import helius_trade_worker
 from sniper_paper_price_feed import paper_price_mark_worker
 from sniper_live_lifecycle import live_fill_reconciliation_worker
+from sniper_live_engine import live_entry_worker, live_exit_worker
 from shrine_trade_feed import shrine_trade_worker
 
 log = logging.getLogger("zombcash.sniper.launches")
@@ -49,6 +50,14 @@ FEED_STATE = {
     "liveFillReconcilerLastAt": None,
     "liveFillReconcilerLastSweep": None,
     "liveFillReconcilerLastError": None,
+    "liveEntryStatus": "starting",
+    "liveEntryLastAt": None,
+    "liveEntryLastSweep": None,
+    "liveEntryLastError": None,
+    "liveExitStatus": "starting",
+    "liveExitLastAt": None,
+    "liveExitLastSweep": None,
+    "liveExitLastError": None,
     "pumpdevEnabled": False,
     "pumpdevConnected": False,
     "pumpdevStatus": "disabled",
@@ -801,6 +810,12 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         application["sniper_live_fill_reconciler_task"] = asyncio.create_task(
             live_fill_reconciliation_worker(supabase_request, FEED_STATE)
         )
+        application["sniper_live_entry_task"] = asyncio.create_task(
+            live_entry_worker(supabase_request, FEED_STATE)
+        )
+        application["sniper_live_exit_task"] = asyncio.create_task(
+            live_exit_worker(supabase_request, FEED_STATE)
+        )
         if restored:
             log.info("[Sniper] Restored launch monitoring from persisted Paper-mode user settings")
         else:
@@ -814,7 +829,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         helius_task = application.get("helius_trade_feed_task")
         price_task = application.get("sniper_paper_price_feed_task")
         fill_reconciler_task = application.get("sniper_live_fill_reconciler_task")
-        for running_task in (task, trade_task, shrine_task, helius_task, watchdog_task, price_task, fill_reconciler_task):
+        live_entry_task = application.get("sniper_live_entry_task")
+        live_exit_task = application.get("sniper_live_exit_task")
+        for running_task in (task, trade_task, shrine_task, helius_task, watchdog_task, price_task, fill_reconciler_task, live_entry_task, live_exit_task):
             if running_task:
                 running_task.cancel()
                 try:
@@ -876,6 +893,14 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "liveFillReconcilerLastAt": FEED_STATE.get("liveFillReconcilerLastAt"),
                     "liveFillReconcilerLastSweep": FEED_STATE.get("liveFillReconcilerLastSweep"),
                     "liveFillReconcilerLastError": FEED_STATE.get("liveFillReconcilerLastError"),
+                    "liveEntryStatus": FEED_STATE.get("liveEntryStatus"),
+                    "liveEntryLastAt": FEED_STATE.get("liveEntryLastAt"),
+                    "liveEntryLastSweep": FEED_STATE.get("liveEntryLastSweep"),
+                    "liveEntryLastError": FEED_STATE.get("liveEntryLastError"),
+                    "liveExitStatus": FEED_STATE.get("liveExitStatus"),
+                    "liveExitLastAt": FEED_STATE.get("liveExitLastAt"),
+                    "liveExitLastSweep": FEED_STATE.get("liveExitLastSweep"),
+                    "liveExitLastError": FEED_STATE.get("liveExitLastError"),
                     "pumpdevEnabled": bool(FEED_STATE.get("pumpdevEnabled", False)),
                     "pumpdevConnected": bool(FEED_STATE.get("pumpdevConnected", False)),
                     "pumpdevStatus": FEED_STATE.get("pumpdevStatus", "disabled"),
