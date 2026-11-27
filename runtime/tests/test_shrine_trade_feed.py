@@ -25,7 +25,7 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
         self.assertEqual(event["side"], "buy")
         self.assertEqual(event["tokenAmount"], 31952.74)
         self.assertEqual(event["solAmount"], 0.0161)
-        self.assertEqual(event["priceSol"], 0.000000504)
+        self.assertAlmostEqual(event["priceSol"], 0.0161 / 31952.74)
         self.assertEqual(event["eventAt"], 1788976012000)
 
     def test_normalizes_usdc_quote_using_sol_amount(self):
@@ -66,10 +66,10 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
         })
         self.assertEqual(event["side"], "sell")
 
-    def test_rejects_non_sol_quote(self):
+    def test_rejects_non_sol_quote_without_sol_normalized_amount(self):
         self.assertIsNone(normalize_shrine_trade({
             "mint": MINT, "signature": "usdc-signature", "is_buy": True,
-            "token_amount": 100, "sol_amount": 0.02, "price": 0.0002,
+            "token_amount": 100, "quote_amount": 2.0, "price": 0.02,
             "quote": "USDC", "timestamp": 1788976012,
         }))
 
