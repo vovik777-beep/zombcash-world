@@ -211,7 +211,7 @@ AS $function$
 declare
   v_order sniper.live_orders%rowtype;
 begin
-  if p_order_id is null or p_status not in ('broadcasting','submitted','confirmed','failed','unknown') then
+  if p_order_id is null or p_status is null or p_status not in ('broadcasting','submitted','confirmed','failed','unknown') then
     raise exception 'invalid_live_order_transition';
   end if;
 
