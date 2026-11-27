@@ -218,7 +218,8 @@ def _normalize_pumpdev_trade_event(payload):
             "solAmount": sol_amount, "tokenAmount": token_amount, "priceSol": price,
             "marketCapSol": _safe_number(payload.get("marketCapSol")),
             "vSolInBondingCurve": v_sol, "vTokensInBondingCurve": v_tokens,
-            "eventAt": event_at, "trader": str(payload.get("traderPublicKey") or "")[:64] or None}
+            "eventAt": event_at, "trader": str(payload.get("traderPublicKey") or "")[:64] or None,
+            "source": "pumpdev"}
 
 
 def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_origin: str) -> None:
