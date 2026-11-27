@@ -68,7 +68,7 @@ begin
     market_cap_sol,v_sol_in_bonding_curve,v_tokens_in_bonding_curve,event_at,received_at,source
   ) values (
     v_mint,v_signature,v_trader,v_side,v_sol,v_tokens,v_price,
-    v_market_cap,v_v_sol,v_tokens,v_event_at,pg_catalog.now(),v_source
+    v_market_cap,v_v_sol,v_v_tokens,v_event_at,pg_catalog.now(),v_source
   )
   on conflict (signature) do nothing
   returning pg_catalog.jsonb_build_object(
