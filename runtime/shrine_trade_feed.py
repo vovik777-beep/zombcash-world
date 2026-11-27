@@ -159,6 +159,7 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                             normalized = normalize_shrine_trade(payload)
                             if not normalized:
                                 feed_state["shrineTradeInvalidEvents"] = int(feed_state.get("shrineTradeInvalidEvents", 0)) + 1
+                                context = {"payload_type": type(payload).__name__}
                                 if not isinstance(payload, dict):
                                     reason = "payload_not_object"
                                 elif not payload.get("mint"):
