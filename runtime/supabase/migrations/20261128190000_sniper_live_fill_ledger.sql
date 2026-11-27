@@ -419,6 +419,7 @@ declare
   v_position sniper.positions%rowtype;
   v_fill sniper.live_order_fills%rowtype;
   v_wallet_id uuid;
+  v_max_slippage_bps integer;
   v_position_id uuid;
   v_price numeric;
   v_remaining_quantity numeric;
@@ -463,6 +464,17 @@ begin
   v_wallet_id := v_order.wallet_id;
   if v_wallet_id is null then
     raise exception 'live_order_wallet_missing';
+  end if;
+
+  select max_slippage_bps into v_max_slippage_bps
+    from sniper.user_settings
+   where telegram_id = v_order.telegram_id;
+  if v_order.side = 'buy'
+     and p_sol_amount > v_order.amount * (1 + (coalesce(v_max_slippage_bps,300)::numeric / 10000)) then
+    raise exception 'live_fill_exceeds_slippage_limit';
+  end if;
+  if v_order.side = 'sell' and p_token_amount > v_order.amount then
+    raise exception 'live_fill_exceeds_order_amount';
   end if;
 
   v_price := p_sol_amount / p_token_amount;
