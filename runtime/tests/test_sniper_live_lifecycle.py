@@ -63,6 +63,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         async def executor(**kwargs):
             self.assertEqual(kwargs["public_key"], WALLET)
             self.assertEqual(kwargs["secret_key_base58"], SECRET)
+            self.assertEqual(kwargs["max_slippage_bps"], 300)
             return {"status": "confirmed", "signature": "sig123", "slot": 42}
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
