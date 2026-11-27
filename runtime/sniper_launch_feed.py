@@ -43,6 +43,8 @@ FEED_STATE = {
     "pumpdevLastNotice": None,
     "pumpdevTradeEventsSeen": 0,
     "pumpdevTradeEventsRejected": 0,
+    "pumpdevTxTypeCounts": {},
+    "pumpdevLastMarketEvent": None,
     "pumpdevTradeRejectReasons": {},
     "pumpdevTradePersistErrors": 0,
 }
@@ -288,6 +290,22 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         FEED_STATE["pumpdevSubscribedMints"] = len(active)
                                     continue
                                 tx_type = str(event.get("txType") or "").lower()
+                                tx_counts = FEED_STATE.setdefault("pumpdevTxTypeCounts", {})
+                                tx_counts[tx_type or "missing"] = int(tx_counts.get(tx_type or "missing", 0)) + 1
+                                FEED_STATE["pumpdevLastMarketEvent"] = {
+                                    "txType": tx_type or None,
+                                    "source": str(event.get("source") or "")[:24] or None,
+                                    "mint": str(event.get("mint") or "")[:64] or None,
+                                    "quoteMint": str(event.get("quoteMint") or "")[:48] or None,
+                                    "hasSignature": bool(event.get("signature")),
+                                    "hasQuoteAmount": event.get("quoteAmount") is not None,
+                                    "hasQuoteAmountRaw": event.get("quoteAmountRaw") is not None,
+                                    "hasSolAmount": event.get("solAmount") is not None,
+                                    "hasTokenAmount": event.get("tokenAmount") is not None,
+                                    "hasBondingReserves": event.get("vSolInBondingCurve") is not None and event.get("vTokensInBondingCurve") is not None,
+                                    "quoteContextResolved": event.get("quoteContextResolved"),
+                                    "at": int(time.time() * 1000),
+                                }
                                 if tx_type in {"complete", "create_pool", "migration", "migrate"}:
                                     log.info("[Sniper] PumpDev lifecycle event ignored for trade storage txType=%s mint=%s",
                                              tx_type, str(event.get("mint") or "")[:64])
@@ -513,6 +531,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "pumpdevLastNotice": FEED_STATE.get("pumpdevLastNotice"),
                     "pumpdevTradeEventsSeen": int(FEED_STATE.get("pumpdevTradeEventsSeen", 0)),
                     "pumpdevTradeEventsRejected": int(FEED_STATE.get("pumpdevTradeEventsRejected", 0)),
+                    "pumpdevTxTypeCounts": FEED_STATE.get("pumpdevTxTypeCounts", {}),
+                    "pumpdevLastMarketEvent": FEED_STATE.get("pumpdevLastMarketEvent"),
                     "pumpdevTradeRejectReasons": FEED_STATE.get("pumpdevTradeRejectReasons", {}),
                     "pumpdevTradePersistErrors": int(FEED_STATE.get("pumpdevTradePersistErrors", 0)),
                 },
