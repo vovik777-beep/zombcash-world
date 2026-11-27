@@ -5,6 +5,7 @@ from sniper_execution import (
     build_pumpportal_trade_request,
     live_execution_enabled,
     live_execution_ready,
+    classify_signature_status,
 )
 
 
@@ -46,6 +47,13 @@ class SniperExecutionTests(unittest.TestCase):
                 public_key=WALLET, mint=MINT, side="buy", amount=0.01,
                 max_slippage_bps=6000, priority_fee_sol=0,
             )
+
+    def test_signature_status_requires_definitive_confirmation(self):
+        self.assertIsNone(classify_signature_status(None))
+        self.assertIsNone(classify_signature_status({"confirmationStatus": "processed", "err": None}))
+        self.assertEqual(classify_signature_status({"confirmationStatus": "confirmed", "err": None}), "confirmed")
+        self.assertEqual(classify_signature_status({"confirmationStatus": "finalized", "err": None}), "confirmed")
+        self.assertEqual(classify_signature_status({"confirmationStatus": "confirmed", "err": {"InstructionError": [0, "Custom"]}}), "failed")
 
     def test_execution_uses_helius_rpc_only(self):
         from pathlib import Path
