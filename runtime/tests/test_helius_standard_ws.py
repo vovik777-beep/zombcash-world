@@ -1,7 +1,12 @@
 import time
 import unittest
 
-from helius_standard_ws import _helius_rpc_url_from_env, _helius_ws_url_from_rpc, _normalize_helius_trade_event
+from helius_standard_ws import (
+    _helius_rpc_url_from_env,
+    _helius_ws_url_from_rpc,
+    _normalize_helius_trade_event,
+    _normalize_pumpfun_log_trade,
+)
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 
@@ -97,6 +102,33 @@ class HeliusStandardWsTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event["side"], "buy")
         self.assertAlmostEqual(event["solAmount"], 0.1)
+
+    def test_normalizes_pumpfun_trade_event_directly_from_logs(self):
+        event = {
+            "mint": MINT,
+            "sol_amount": 100_000_000,
+            "token_amount": 2_000_000,
+            "is_buy": True,
+            "user": "TraderWallet",
+            "quote_mint": "11111111111111111111111111111111",
+        }
+        normalized = _normalize_pumpfun_log_trade(event, MINT, "signature")
+        self.assertEqual(normalized["side"], "buy")
+        self.assertAlmostEqual(normalized["solAmount"], 0.1)
+        self.assertAlmostEqual(normalized["tokenAmount"], 2)
+        self.assertAlmostEqual(normalized["priceSol"], 0.05)
+        self.assertEqual(normalized["trader"], "TraderWallet")
+
+    def test_rejects_non_sol_pumpfun_quote_mint(self):
+        event = {
+            "mint": MINT,
+            "sol_amount": 100_000_000,
+            "token_amount": 2_000_000,
+            "is_buy": True,
+            "user": "TraderWallet",
+            "quote_mint": "USDC_MINT",
+        }
+        self.assertIsNone(_normalize_pumpfun_log_trade(event, MINT, "signature"))
 
     def test_skips_failed_transactions(self):
         failed = self._transaction("buy")
