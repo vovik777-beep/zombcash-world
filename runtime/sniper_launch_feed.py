@@ -246,7 +246,7 @@ def _normalize_pumpportal_trade_event(payload):
     # PumpPortal payloads expose tokenAmount and curve reserves in UI units.
     token_amount = token_raw
     v_sol = _safe_number(payload.get("vSolInBondingCurve"))
-    v_tokens = _safe_number(payload.get("vTokensInBondingCurve))
+    v_tokens = _safe_number(payload.get("vTokensInBondingCurve"))
     if str(payload.get("pool") or payload.get("source") or "").lower() in {"pumpswap", "pump-amm"}:
         quote = _safe_number(payload.get("poolEffectiveQuoteReservesUi"))
         if quote is None:
