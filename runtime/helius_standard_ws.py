@@ -185,6 +185,7 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
             continue
 
         budget_blocked = False
+        budget_rpc_failed = False
         try:
             timeout = ClientTimeout(total=None, connect=8)
             async with ClientSession(timeout=timeout) as session:
@@ -208,6 +209,9 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                             mint for mint, started_ms in list(active_mints.items())
                             if MINT_RE.fullmatch(mint) and now_ms - int(started_ms) < 60_000
                         }
+                        for pending_id, pending_mint in list(pending_requests.items()):
+                            if pending_mint not in desired:
+                                pending_requests.pop(pending_id, None)
                         if not desired:
                             await ws.close()
                             break
@@ -258,6 +262,7 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                 )
                             except Exception as exc:
                                 state["heliusError"] = "budget_rpc_unavailable"
+                                budget_rpc_failed = True
                                 log.warning("[Sniper] Helius budget check failed (%s); stream stopped", type(exc).__name__)
                                 await ws.close()
                                 break
@@ -283,7 +288,7 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                 if lookup:
                                     seen_signatures.add(signature)
                                     if len(seen_signatures) > 2000:
-                                        seen_signatures = set(list(seen_signatures)[-1000:])
+                                        seen_signatures.clear()
                                     state["heliusTransactionsLookedUp"] = int(state.get("heliusTransactionsLookedUp", 0)) + 1
                                     rpc_payload = {
                                         "jsonrpc": "2.0", "id": request_id,
@@ -343,3 +348,5 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
             seconds_to_utc_reset = max(60, ((int(now) // 86400) + 1) * 86400 - now)
             log.warning("[Sniper] Helius Standard WSS paused until the next UTC day after reaching its hard budget")
             await asyncio.sleep(seconds_to_utc_reset)
+        elif budget_rpc_failed:
+            await asyncio.sleep(60)
