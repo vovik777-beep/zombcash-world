@@ -7,7 +7,7 @@ import math
 import re
 import time
 
-from aiohttp import ClientSession, ClientTimeout, WSMsgType
+from aiohttp import ClientConnectionError, ClientSession, ClientTimeout, WSMsgType
 
 log = logging.getLogger("zombcash.sniper.shrine")
 SOL_MINT = "So11111111111111111111111111111111111111112"
@@ -64,6 +64,20 @@ def normalize_shrine_trade(payload, quote_mint=None):
     }
 
 
+
+
+async def _safe_ws_send(ws, payload, send_lock):
+    """Send only while the transport is open; disconnect races are benign."""
+    try:
+        async with send_lock:
+            if ws.closed:
+                return False
+            await ws.send_str(payload)
+        return True
+    except (ClientConnectionError, asyncio.TimeoutError, RuntimeError):
+        return False
+
+
 async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed_state):
     """Consume Shrine's free Socket.IO per-token trade channel over Engine.IO WebSocket."""
     backoff = 15
@@ -83,7 +97,9 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                     first = await ws.receive(timeout=15)
                     if first.type != WSMsgType.TEXT or not first.data.startswith("0"):
                         raise RuntimeError("shrine_engineio_handshake_invalid")
-                    await ws.send_str("40")
+                    send_lock = asyncio.Lock()
+                    if not await _safe_ws_send(ws, "40", send_lock):
+                        raise RuntimeError("shrine_websocket_handshake_send_failed")
                     connected = await ws.receive(timeout=15)
                     if connected.type != WSMsgType.TEXT or not connected.data.startswith("40"):
                         raise RuntimeError("shrine_socketio_namespace_not_connected")
@@ -169,7 +185,8 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 await asyncio.sleep(0.5)
                                 continue
                             packet = "42" + json.dumps(["subscribe_trades", {"mint": mint}], separators=(",", ":"))
-                            await ws.send_str(packet)
+                            if not await _safe_ws_send(ws, packet, send_lock):
+                                raise RuntimeError("shrine_websocket_subscribe_send_failed")
                             active[mint] = time.monotonic()
                             feed_state["shrineTradeSubscriptions"] = len(active)
                             feed_state["shrineTradeSubscriptionsSent"] = int(feed_state.get("shrineTradeSubscriptionsSent", 0)) + 1
@@ -181,11 +198,21 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 metadata_tasks.add(task)
                                 task.add_done_callback(metadata_tasks.discard)
                             async def expire(target):
-                                await asyncio.sleep(60)
-                                if target in active and not ws.closed:
-                                    await ws.send_str("42" + json.dumps(["unsubscribe_trades", {"mint": target}], separators=(",", ":")))
+                                try:
+                                    await asyncio.sleep(60)
+                                    if target not in active:
+                                        return
                                     active.pop(target, None)
                                     feed_state["shrineTradeSubscriptions"] = len(active)
+                                    await _safe_ws_send(
+                                        ws,
+                                        "42" + json.dumps(["unsubscribe_trades", {"mint": target}], separators=(",", ":")),
+                                        send_lock,
+                                    )
+                                except asyncio.CancelledError:
+                                    raise
+                                except Exception as exc:
+                                    log.debug("[Sniper] Shrine subscription expiry ended (%s)", type(exc).__name__)
                             task = asyncio.create_task(expire(mint))
                             expiry_tasks.add(task)
                             task.add_done_callback(expiry_tasks.discard)
@@ -197,10 +224,12 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                         if message.type == WSMsgType.TEXT:
                             raw = message.data
                             if raw == "2":
-                                await ws.send_str("3")
+                                if not await _safe_ws_send(ws, "3", send_lock):
+                                    raise RuntimeError("shrine_websocket_pong_failed")
                                 continue
                             if raw.startswith("2"):
-                                await ws.send_str("3" + raw[1:])
+                                if not await _safe_ws_send(ws, "3" + raw[1:], send_lock):
+                                    raise RuntimeError("shrine_websocket_pong_failed")
                                 continue
                             if not raw.startswith("42"):
                                 continue
