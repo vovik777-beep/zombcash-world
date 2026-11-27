@@ -108,22 +108,24 @@ class SniperLaunchFeedTests(unittest.TestCase):
     def test_pumpdev_feed_is_opt_in_and_never_uses_trading_endpoint(self):
         from pathlib import Path
         source = Path("sniper_launch_feed.py").read_text(encoding="utf-8")
-        self.assertIn('os.getenv("PUMPDEV_TRADE_FEED_ENABLED", "0")', source)
+        self.assertIn("await launch_enabled.wait()", source)
         self.assertIn("PUMPDEV_API_KEY", source)
         self.assertIn("wss://pumpdev.io/ws", source)
+        self.assertIn("subscribeNewToken", source)
+        self.assertIn("subscribeTokenTrade", source)
         self.assertNotIn("/api/trade", source)
-        self.assertIn('"pumpdevConnected": False, "pumpdevStatus": "authenticating"', source)
-        self.assertIn('"pumpdevEnabled": True, "pumpdevConnected": True, "pumpdevStatus": "connected"', source)
+        self.assertIn('"pumpdevStatus": "connected_anonymous"', source)
+        self.assertIn('"pumpdevStatus": "connected_free"', source)
         self.assertIn('"paperEngineEnabled": False', source)
 
-    def test_pumpdev_worker_waits_for_runtime_env_configuration(self):
+    def test_pumpdev_worker_waits_for_website_opt_in(self):
         from pathlib import Path
         source = Path("sniper_launch_feed.py").read_text(encoding="utf-8")
         worker = source.split("async def pumpdev_trade_worker()", 1)[1].split("async def worker()", 1)[0]
         self.assertIn("while True:", worker)
-        self.assertIn('os.getenv("PUMPDEV_TRADE_FEED_ENABLED", "0")', worker)
+        self.assertIn("await launch_enabled.wait()", worker)
         self.assertIn('os.getenv("PUMPDEV_API_KEY", "")', worker)
-        self.assertGreaterEqual(worker.count("await asyncio.sleep(5)"), 2)
+        self.assertIn("backoff = min(backoff * 2, 120)", worker)
 
 if __name__ == "__main__":
     unittest.main()
