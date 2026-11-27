@@ -165,14 +165,30 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                     reason = "missing_mint"
                                 elif not payload.get("signature"):
                                     reason = "missing_signature"
-                                elif str(payload.get("quote") or payload.get("quoteMint") or "") != SOL_MINT:
-                                    reason = "quote_not_sol"
-                                elif not isinstance(payload.get("is_buy"), bool):
-                                    reason = "invalid_is_buy"
                                 else:
-                                    reason = "invalid_amount_or_price_or_timestamp"
+                                    quote_value = str(payload.get("quote") or payload.get("quoteMint") or "")[:64]
+                                    sol_raw = payload.get("sol_amount")
+                                    quote_raw = payload.get("quote_amount")
+                                    if not isinstance(payload.get("is_buy"), bool):
+                                        reason = "invalid_is_buy"
+                                    elif sol_raw in (None, "") and quote_value not in {SOL_MINT, "SOL", "WSOL"}:
+                                        reason = "no_sol_value_for_quote"
+                                    elif not payload.get("token_amount") or not payload.get("price") or not payload.get("timestamp"):
+                                        reason = "missing_amount_price_or_timestamp"
+                                    else:
+                                        reason = "invalid_numeric_value"
+                                    context = {
+                                        "quote": quote_value or None,
+                                        "has_sol_amount": sol_raw not in (None, ""),
+                                        "has_quote_amount": quote_raw not in (None, ""),
+                                        "has_token_amount": payload.get("token_amount") not in (None, ""),
+                                        "has_price": payload.get("price") not in (None, ""),
+                                        "has_timestamp": payload.get("timestamp") not in (None, ""),
+                                        "has_signature": bool(payload.get("signature")),
+                                    }
                                 feed_state["shrineTradeLastInvalidReason"] = reason
-                                log.info("[Sniper] Shrine trade event rejected reason=%s", reason)
+                                feed_state["shrineTradeLastInvalidContext"] = context if isinstance(payload, dict) else {"payload_type": type(payload).__name__}
+                                log.info("[Sniper] Shrine trade event rejected reason=%s context=%s", reason, feed_state["shrineTradeLastInvalidContext"])
                                 continue
                             try:
                                 await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized})
