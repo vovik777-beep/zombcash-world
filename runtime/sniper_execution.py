@@ -35,6 +35,17 @@ def live_execution_enabled() -> bool:
     return os.getenv("SNIPER_LIVE_TRADING_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def classify_signature_status(status: Any) -> str | None:
+    """Return confirmed/failed only for a definitive chain status."""
+    if not isinstance(status, dict):
+        return None
+    if status.get("err") is not None:
+        return "failed"
+    if status.get("confirmationStatus") in {"confirmed", "finalized"}:
+        return "confirmed"
+    return None
+
+
 def live_execution_ready() -> bool:
     # The signer is implemented, but the per-user live order lifecycle is not
     # wired yet. Keep the UI/API locked until pending-order, balance, sell and
@@ -154,18 +165,28 @@ async def execute_pumpportal_local_trade(
                 },
             ],
         }
-        async with session.post(rpc_url, json=rpc_payload) as response:
-            try:
-                rpc_result = await response.json(content_type=None)
-            except Exception as exc:
-                raise LiveExecutionError("solana_rpc_invalid_response") from exc
-            if response.status != 200 or rpc_result.get("error") or not rpc_result.get("result"):
-                log.warning("Solana RPC rejected signed trade: HTTP %s", response.status)
-                raise LiveExecutionError("solana_transaction_rejected")
-            signature = str(rpc_result["result"])
+        try:
+            async with session.post(rpc_url, json=rpc_payload) as response:
+                try:
+                    rpc_result = await response.json(content_type=None)
+                except Exception:
+                    rpc_result = None
+                if response.status != 200 or (isinstance(rpc_result, dict) and rpc_result.get("error")):
+                    log.warning("Solana RPC rejected signed trade: HTTP %s", response.status)
+                    raise LiveExecutionError("solana_transaction_rejected")
+                if not isinstance(rpc_result, dict) or not rpc_result.get("result"):
+                    # The request may have reached the RPC even if its response was lost.
+                    # Never retry automatically: the caller must reconcile this unknown order.
+                    return {"signature": None, "status": "unknown", "errorCode": "broadcast_response_unknown", "side": side, "mint": mint}
+                signature = str(rpc_result["result"])
+        except LiveExecutionError:
+            raise
+        except Exception as exc:
+            log.warning("Solana transaction broadcast outcome unknown (%s)", type(exc).__name__)
+            return {"signature": None, "status": "unknown", "errorCode": "broadcast_response_unknown", "side": side, "mint": mint}
 
-        # Confirmation is polled via the same RPC; a submitted signature is not
-        # reported as a completed trade until the chain reports confirmed/finalized.
+        # A signature means broadcast was accepted; until the chain confirms it,
+        # the result remains submitted/unknown and must never be retried blindly.
         for attempt in range(15):
             status_payload = {
                 "jsonrpc": "2.0",
@@ -173,25 +194,25 @@ async def execute_pumpportal_local_trade(
                 "method": "getSignatureStatuses",
                 "params": [[signature], {"searchTransactionHistory": True}],
             }
-            async with session.post(rpc_url, json=status_payload) as response:
-                try:
+            try:
+                async with session.post(rpc_url, json=status_payload) as response:
                     status_result = await response.json(content_type=None)
-                except Exception as exc:
-                    raise LiveExecutionError("solana_confirmation_lookup_failed") from exc
-            if response.status == 200 and not status_result.get("error"):
-                values = (status_result.get("result") or {}).get("value") or []
-                status = values[0] if values else None
-                if status:
-                    if status.get("err") is not None:
-                        raise LiveExecutionError("solana_transaction_failed")
-                    if status.get("confirmationStatus") in {"confirmed", "finalized"}:
+                if response.status == 200 and isinstance(status_result, dict) and not status_result.get("error"):
+                    values = (status_result.get("result") or {}).get("value") or []
+                    status = values[0] if values else None
+                    classification = classify_signature_status(status)
+                    if classification == "failed":
+                        return {"signature": signature, "status": "failed", "errorCode": "solana_transaction_failed", "slot": (status or {}).get("slot"), "side": side, "mint": mint}
+                    if classification == "confirmed":
                         return {
                             "signature": signature,
-                            "status": status.get("confirmationStatus"),
+                            "status": "confirmed",
                             "slot": status.get("slot"),
                             "side": side,
                             "mint": mint,
                         }
+            except Exception as exc:
+                log.warning("Solana confirmation lookup inconclusive (%s)", type(exc).__name__)
             if attempt < 14:
                 await asyncio.sleep(0.5)
-    raise LiveExecutionError("solana_transaction_confirmation_timeout")
+        return {"signature": signature, "status": "unknown", "errorCode": "confirmation_timeout", "side": side, "mint": mint}
