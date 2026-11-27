@@ -235,10 +235,15 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                             if now_ms - int(started_ms) >= 60_000:
                                 active_mints.pop(mint, None)
                                 mints_changed.set()
-                        desired = {
-                            mint for mint, started_ms in list(active_mints.items())
-                            if MINT_RE.fullmatch(mint) and now_ms - int(started_ms) < 60_000
-                        }
+                        eligible = sorted(
+                            (
+                                (mint, int(started_ms))
+                                for mint, started_ms in list(active_mints.items())
+                                if MINT_RE.fullmatch(mint) and now_ms - int(started_ms) < 60_000
+                            ),
+                            key=lambda item: item[1],
+                        )[:4]
+                        desired = {mint for mint, _started_ms in eligible}
                         for pending_id, pending_mint in list(pending_requests.items()):
                             if pending_mint not in desired:
                                 pending_requests.pop(pending_id, None)
