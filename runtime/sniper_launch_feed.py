@@ -256,6 +256,13 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     continue
                                 if event_type in {"connected", "connectionstatus"}:
                                     continue
+                                # PumpDev documents every frame with a top-level "type" as
+                                # a control frame; market events carry txType and no type.
+                                # Do not count control frames as rejected trades.
+                                if event.get("type"):
+                                    log.debug("[Sniper] PumpDev control frame ignored type=%s",
+                                              str(event.get("type"))[:64])
+                                    continue
                                 if not authenticated:
                                     continue
                                 if event.get("txType") == "create":
