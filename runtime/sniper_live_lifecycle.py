@@ -141,7 +141,11 @@ async def submit_live_order(
 
     # This durable transition is the retry lock. Do not call the executor unless
     # the database has acknowledged that the order entered broadcasting.
-    await _transition(supabase_request, order_id, "broadcasting")
+    try:
+        await _transition(supabase_request, order_id, "broadcasting")
+    except Exception:
+        secret = None
+        raise
 
     try:
         result = await executor(
