@@ -150,17 +150,18 @@ def _normalize_pumpdev_trade_event(payload):
 def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_origin: str) -> None:
     launch_enabled = asyncio.Event()
     active_launch_ws = None
+    active_pumpdev_ws = None
 
     async def set_enabled(enabled: bool) -> None:
-        nonlocal active_launch_ws
+        nonlocal active_launch_ws, active_pumpdev_ws
         if enabled:
             launch_enabled.set()
             log.info("[Sniper] Launch monitoring enabled from website")
             return
         launch_enabled.clear()
-        ws = active_launch_ws
-        if ws is not None and not ws.closed:
-            await ws.close()
+        for ws in (active_launch_ws, active_pumpdev_ws):
+            if ws is not None and not ws.closed:
+                await ws.close()
         FEED_STATE.update({"connected": False, "lastError": None})
         log.info("[Sniper] Launch monitoring stopped from website")
 
@@ -170,6 +171,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
 
     async def pumpdev_trade_worker() -> None:
         """Discover new Pump.fun tokens only while Auto Sniper is enabled; then capture their trades."""
+        nonlocal active_pumpdev_ws
         backoff = 5
         while True:
             await launch_enabled.wait()
@@ -180,6 +182,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 authenticated = not bool(api_key)
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
                     async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=20, receive_timeout=600, max_msg_size=1_000_000) as ws:
+                        active_pumpdev_ws = ws
                         FEED_STATE.update({"pumpdevEnabled": True, "pumpdevConnected": True,
                             "pumpdevStatus": "connected_anonymous" if not api_key else "authenticating",
                             "pumpdevLastError": None, "pumpdevSubscribedMints": 0})
@@ -262,6 +265,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, 120)
             finally:
+                active_pumpdev_ws = None
                 FEED_STATE.update({"pumpdevConnected": False, "pumpdevSubscribedMints": 0,
                     "pumpdevStatus": "stopped" if not launch_enabled.is_set() else FEED_STATE.get("pumpdevStatus", "reconnecting")})
                 if not launch_enabled.is_set():
