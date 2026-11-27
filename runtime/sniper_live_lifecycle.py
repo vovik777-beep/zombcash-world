@@ -149,23 +149,29 @@ async def submit_live_order(
     if execution_fee is None:
         try:
             execution_fee = float(os.getenv("SNIPER_PRIORITY_FEE_SOL", "0.00005"))
-            reserve_sol = float(os.getenv("SNIPER_LIVE_RESERVE_SOL", "0.01"))
         except (TypeError, ValueError) as exc:
-            await _transition(supabase_request, order_id, "failed", error_code="invalid_live_reserve_configuration")
-            return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_reserve_configuration"}
-    else:
+            await _transition(supabase_request, order_id, "failed", error_code="invalid_live_fee_configuration")
+            return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_fee_configuration"}
+    try:
+        execution_fee = float(execution_fee)
+    except (TypeError, ValueError):
+        await _transition(supabase_request, order_id, "failed", error_code="invalid_live_fee_configuration")
+        return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_fee_configuration"}
+    if not math.isfinite(execution_fee) or not 0 <= execution_fee <= 0.01:
+        await _transition(supabase_request, order_id, "failed", error_code="invalid_live_fee_configuration")
+        return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_fee_configuration"}
+
+    if side == "buy":
         try:
             reserve_sol = float(os.getenv("SNIPER_LIVE_RESERVE_SOL", "0.01"))
         except (TypeError, ValueError):
             reserve_sol = -1
-    if not math.isfinite(float(execution_fee)) or not 0 <= float(execution_fee) <= 0.01 or not math.isfinite(reserve_sol) or not 0 <= reserve_sol <= 1:
-        await _transition(supabase_request, order_id, "failed", error_code="invalid_live_reserve_configuration")
-        return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_reserve_configuration"}
-
-    if side == "buy":
+        if not math.isfinite(reserve_sol) or not 0 <= reserve_sol <= 1:
+            await _transition(supabase_request, order_id, "failed", error_code="invalid_live_reserve_configuration")
+            return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_reserve_configuration"}
         try:
             balance_lamports = await balance_checker(str(wallet["publicKey"]))
-            required_lamports = math.ceil((numeric_amount + float(execution_fee) + reserve_sol) * 1_000_000_000)
+            required_lamports = math.ceil((numeric_amount + execution_fee + reserve_sol) * 1_000_000_000)
             if not isinstance(balance_lamports, int) or isinstance(balance_lamports, bool) or balance_lamports < required_lamports:
                 await _transition(supabase_request, order_id, "failed", error_code="insufficient_wallet_sol_balance")
                 return {"orderId": order_id, "status": "failed", "errorCode": "insufficient_wallet_sol_balance"}
