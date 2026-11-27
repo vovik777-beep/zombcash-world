@@ -288,10 +288,52 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                 FEED_STATE["pumpdevTradeEventsSeen"] = int(FEED_STATE.get("pumpdevTradeEventsSeen", 0)) + 1
                                 normalized = _normalize_pumpdev_trade_event(event)
                                 if not normalized:
-                                    reason = "invalid_or_unsupported_trade"
+                                    mint_value = str(event.get("mint") or "").strip()
+                                    signature_value = str(event.get("signature") or "").strip()
+                                    tx_value = str(event.get("txType") or "").lower()
+                                    if tx_value not in {"buy", "sell"}:
+                                        reason = "unsupported_tx_type"
+                                    elif not MINT_RE.fullmatch(mint_value):
+                                        reason = "invalid_mint"
+                                    elif not signature_value:
+                                        reason = "missing_signature"
+                                    elif event.get("quoteMint") != PUMPDEV_SOL_MINT:
+                                        reason = "quote_mint_not_sol"
+                                    elif event.get("quoteContextResolved") is False:
+                                        reason = "quote_context_unresolved"
+                                    else:
+                                        sol_value = _safe_number(event.get("solAmount"))
+                                        if sol_value is None:
+                                            sol_value = _safe_number(event.get("quoteAmount"))
+                                        token_value = _safe_number(event.get("tokenAmount"))
+                                        v_sol_value = _safe_number(event.get("vSolInBondingCurve"))
+                                        v_tokens_value = _safe_number(event.get("vTokensInBondingCurve"))
+                                        if str(event.get("source") or "").lower() == "pumpswap":
+                                            v_sol_value = _safe_number(event.get("poolEffectiveQuoteReservesUi"))
+                                            if v_sol_value is None:
+                                                raw_quote = _safe_number(event.get("poolEffectiveQuoteReserves"))
+                                                v_sol_value = raw_quote / 1_000_000_000 if raw_quote is not None else None
+                                            v_tokens_value = _safe_number(event.get("poolBaseReservesUi"))
+                                            if v_tokens_value is None:
+                                                raw_base = _safe_number(event.get("poolBaseReserves"))
+                                                v_tokens_value = raw_base / 1_000_000 if raw_base is not None else None
+                                        if sol_value is None or sol_value <= 0:
+                                            reason = "missing_or_invalid_sol_amount"
+                                        elif token_value is None or token_value <= 0:
+                                            reason = "missing_or_invalid_token_amount"
+                                        elif v_sol_value is None or v_sol_value <= 0:
+                                            reason = "missing_or_invalid_sol_reserves"
+                                        elif v_tokens_value is None or v_tokens_value <= 0:
+                                            reason = "missing_or_invalid_token_reserves"
+                                        else:
+                                            reason = "normalization_failed_other"
                                     reasons = FEED_STATE.setdefault("pumpdevTradeRejectReasons", {})
                                     reasons[reason] = int(reasons.get(reason, 0)) + 1
                                     FEED_STATE["pumpdevTradeEventsRejected"] = int(FEED_STATE.get("pumpdevTradeEventsRejected", 0)) + 1
+                                    log.info("[Sniper] PumpDev trade rejected reason=%s txType=%s source=%s quoteMint=%s quoteResolved=%s",
+                                             reason, tx_value[:16], str(event.get("source") or "")[:24],
+                                             str(event.get("quoteMint") or "")[:48],
+                                             str(event.get("quoteContextResolved"))[:8])
                                     continue
                                 try:
                                     await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized})
