@@ -63,3 +63,65 @@ $function$;
 
 REVOKE ALL ON FUNCTION public.sniper_live_engine_health() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.sniper_live_engine_health() TO service_role;
+
+ALTER TABLE sniper.live_orders
+  ADD COLUMN IF NOT EXISTS unknown_reconciled_at timestamptz,
+  ADD COLUMN IF NOT EXISTS fill_reconciled_at timestamptz;
+
+CREATE OR REPLACE FUNCTION public.sniper_live_unknown_orders()
+RETURNS TABLE(order_id uuid, telegram_id bigint, mint text, side text, signature text, chain_slot bigint)
+LANGUAGE sql SECURITY DEFINER SET search_path TO ''
+AS $function$
+  select o.id,o.telegram_id,o.mint,o.side,o.signature,o.chain_slot
+    from sniper.live_orders o
+   where o.status='unknown'
+     and o.signature is not null
+     and (o.unknown_reconciled_at is null or o.unknown_reconciled_at < pg_catalog.now()-interval '15 seconds')
+   order by coalesce(o.unknown_reconciled_at,o.updated_at) asc
+   limit 5;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.sniper_live_unfilled_confirmed_orders()
+RETURNS TABLE(order_id uuid, telegram_id bigint, mint text, side text, signature text, chain_slot bigint)
+LANGUAGE sql SECURITY DEFINER SET search_path TO ''
+AS $function$
+  select o.id,o.telegram_id,o.mint,o.side,o.signature,o.chain_slot
+    from sniper.live_orders o
+   where o.status='confirmed'
+     and o.signature is not null
+     and (o.fill_reconciled_at is null or o.fill_reconciled_at < pg_catalog.now()-interval '15 seconds')
+     and not exists (select 1 from sniper.live_order_fills f where f.order_id=o.id)
+   order by coalesce(o.fill_reconciled_at,o.confirmed_at) asc
+   limit 5;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.sniper_live_order_unknown_reconciliation_touch(p_order_id uuid)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path TO ''
+AS $function$
+  update sniper.live_orders
+     set unknown_reconciled_at=pg_catalog.now()
+   where id=p_order_id and status='unknown' and signature is not null;
+$function$;
+
+CREATE OR REPLACE FUNCTION public.sniper_live_order_fill_reconciliation_touch(p_order_id uuid)
+RETURNS void
+LANGUAGE sql SECURITY DEFINER SET search_path TO ''
+AS $function$
+  update sniper.live_orders
+     set fill_reconciled_at=pg_catalog.now()
+   where id=p_order_id and status='confirmed'
+     and not exists (select 1 from sniper.live_order_fills f where f.order_id=p_order_id);
+$function$;
+
+CREATE INDEX IF NOT EXISTS live_orders_unknown_reconcile_idx
+  ON sniper.live_orders (unknown_reconciled_at,updated_at)
+  WHERE status='unknown' AND signature IS NOT NULL;
+CREATE INDEX IF NOT EXISTS live_orders_fill_reconcile_idx
+  ON sniper.live_orders (fill_reconciled_at,confirmed_at)
+  WHERE status='confirmed' AND signature IS NOT NULL;
+
+REVOKE ALL ON FUNCTION public.sniper_live_order_unknown_reconciliation_touch(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.sniper_live_order_unknown_reconciliation_touch(uuid) TO service_role;
+REVOKE ALL ON FUNCTION public.sniper_live_order_fill_reconciliation_touch(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.sniper_live_order_fill_reconciliation_touch(uuid) TO service_role;
