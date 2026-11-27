@@ -164,7 +164,12 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
         block_time = float(transaction_result.get("blockTime"))
     except (TypeError, ValueError):
         block_time = 0
-    event_at = int(block_time * 1000) if block_time > 0 else int(time.time() * 1000)
+    now_ms = int(time.time() * 1000)
+    if block_time > 0 and now_ms - int(block_time * 1000) > 30_000:
+        return None
+    # Use receive time: blockTime has only second precision and can precede the
+    # launch timestamp by a few milliseconds, incorrectly excluding the first buy.
+    event_at = now_ms
     return {
         "mint": mint,
         "signature": tx_signature[:128],
