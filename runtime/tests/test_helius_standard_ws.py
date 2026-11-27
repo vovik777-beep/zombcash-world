@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from helius_standard_ws import _helius_ws_url_from_rpc, _normalize_helius_trade_event
@@ -16,7 +17,7 @@ class HeliusStandardWsTests(unittest.TestCase):
             pre_tokens, post_tokens = "2000000", "1000000"
             pre_ui, post_ui = "2", "1"
         return {
-            "blockTime": 1700000000,
+            "blockTime": int(time.time()),
             "transaction": {
                 "signatures": ["sig-" + side],
                 "message": {"accountKeys": [
