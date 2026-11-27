@@ -14,6 +14,8 @@ SOL_MINT = "So11111111111111111111111111111111111111112"
 DEXSCREENER_TOKEN_PAIRS_URL = "https://api.dexscreener.com/token-pairs/v1/solana/{}"
 JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 GECKOTERMINAL_SIMPLE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{}"
+GECKOTERMINAL_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{}/pools"
+MAX_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
 MIN_LIQUIDITY_USD = 500.0
 MAX_MINTS_PER_CYCLE = 20
 POLL_INTERVAL_SECONDS = 60.0
@@ -155,6 +157,68 @@ async def _fetch_geckoterminal_prices(session: ClientSession, mints: list[str]):
     return payload if isinstance(payload, dict) else {}
 
 
+def _geckoterminal_token_id_matches(token_id, mint: str):
+    value = str(token_id or "")
+    return value == mint or value.endswith("_" + mint)
+
+
+def normalize_geckoterminal_pool_mark(payload, mint: str, observed_at_ms: int | None = None):
+    """Choose a liquid GeckoTerminal pool and read the token price in Solana native currency."""
+    if not MINT_RE.fullmatch(str(mint or "")) or not isinstance(payload, dict):
+        return None
+    pools = payload.get("data") if isinstance(payload.get("data"), list) else []
+    candidates = []
+    for pool in pools:
+        if not isinstance(pool, dict):
+            continue
+        attrs = pool.get("attributes") if isinstance(pool.get("attributes"), dict) else {}
+        relationships = pool.get("relationships") if isinstance(pool.get("relationships"), dict) else {}
+        base = relationships.get("base_token") if isinstance(relationships.get("base_token"), dict) else {}
+        quote = relationships.get("quote_token") if isinstance(relationships.get("quote_token"), dict) else {}
+        base_data = base.get("data") if isinstance(base.get("data"), dict) else {}
+        quote_data = quote.get("data") if isinstance(quote.get("data"), dict) else {}
+        base_id = base_data.get("id")
+        quote_id = quote_data.get("id")
+        if _geckoterminal_token_id_matches(base_id, mint):
+            price_sol = _number(attrs.get("base_token_price_native_currency"))
+        elif _geckoterminal_token_id_matches(quote_id, mint):
+            price_sol = _number(attrs.get("quote_token_price_native_currency"))
+        else:
+            continue
+        liquidity = _number(attrs.get("reserve_in_usd"))
+        pool_address = str(attrs.get("address") or "").strip()
+        if price_sol is None or price_sol <= 0 or liquidity is None or liquidity < MIN_LIQUIDITY_USD:
+            continue
+        if not pool_address or not MINT_RE.fullmatch(pool_address):
+            continue
+        candidates.append((liquidity, pool_address, price_sol))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    liquidity, pool_address, price_sol = candidates[0]
+    return {
+        "mint": mint,
+        "source": "geckoterminal",
+        "priceSol": price_sol,
+        "liquidityUsd": liquidity,
+        "pairAddress": pool_address,
+        "observedAt": int(observed_at_ms or time.time() * 1000),
+    }
+
+
+async def _fetch_geckoterminal_token_pools(session: ClientSession, mint: str):
+    url = GECKOTERMINAL_TOKEN_POOLS_URL.format(mint)
+    async with session.get(
+        url,
+        params={"include": "base_token,quote_token", "sort": "h24_volume_usd_desc"},
+        headers={"Accept": "application/json;version=20230203", "User-Agent": "ZombieCash-PaperPrice/1.0"},
+    ) as response:
+        if response.status != 200:
+            raise RuntimeError(f"GeckoTerminal token pools HTTP {response.status}")
+        payload = await response.json(content_type=None)
+    return payload if isinstance(payload, dict) else {}
+
+
 async def _fetch_token_pairs(session: ClientSession, mint: str):
     url = DEXSCREENER_TOKEN_PAIRS_URL.format(mint)
     async with session.get(url, headers={"Accept": "application/json", "User-Agent": "ZombieCash-PaperPrice/1.0"}) as response:
@@ -248,11 +312,20 @@ async def paper_price_mark_worker(supabase_request, state):
 
                 gecko_mints = [mint for mint in missing_mints if mint not in jupiter_covered]
                 if gecko_mints:
-                    try:
-                        prices = await _fetch_geckoterminal_prices(session, gecko_mints)
-                        observed_at_ms = int(time.time() * 1000)
-                        for mint in gecko_mints:
-                            mark = normalize_geckoterminal_paper_mark(prices, mint, observed_at_ms)
+                    # The simple batch index can omit long-tail Solana tokens. Query token pools
+                    # directly, but cap this to four per minute to stay comfortably below the
+                    # public GeckoTerminal rate limit even when the open-position set grows.
+                    offset = int(state.get("paperPriceFeedGeckoOffset", 0)) % len(gecko_mints)
+                    pool_mints = (
+                        gecko_mints[offset:offset + MAX_GECKO_POOL_LOOKUPS_PER_CYCLE]
+                        + gecko_mints[:max(0, offset + MAX_GECKO_POOL_LOOKUPS_PER_CYCLE - len(gecko_mints))]
+                    )
+                    state["paperPriceFeedGeckoOffset"] = (offset + len(pool_mints)) % len(gecko_mints)
+                    state["paperPriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
+                    for index, mint in enumerate(pool_mints):
+                        try:
+                            pools = await _fetch_geckoterminal_token_pools(session, mint)
+                            mark = normalize_geckoterminal_pool_mark(pools, mint)
                             if mark is None:
                                 no_pair += 1
                                 continue
@@ -263,15 +336,16 @@ async def paper_price_mark_worker(supabase_request, state):
                             )
                             if not isinstance(saved, dict) or saved.get("ok") is not True:
                                 errors += 1
-                                log.warning("[Sniper] GeckoTerminal Paper mark rejected by Supabase validation")
+                                log.warning("[Sniper] GeckoTerminal pool mark rejected by Supabase validation")
                             else:
                                 updated += 1
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        errors += 1
-                        no_pair = len(gecko_mints)
-                        log.warning("[Sniper] GeckoTerminal Paper price fallback failed (%s)", type(exc).__name__)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            errors += 1
+                            log.warning("[Sniper] GeckoTerminal token-pools fallback failed (%s)", type(exc).__name__)
+                        if index < len(pool_mints) - 1:
+                            await asyncio.sleep(REQUEST_SPACING_SECONDS)
 
             state["paperPriceFeedStatus"] = "active"
             state["paperPriceFeedMints"] = len(mints)
