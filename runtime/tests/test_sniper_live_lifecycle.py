@@ -12,6 +12,9 @@ SECRET = "test-secret-never-return-this"
 
 
 class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def balance_ok(self, public_key):
+        return 100_000_000
+
     def make_supabase(self, prepared_status="prepared", settings=None):
         calls = []
         async def request(method, path, payload=None):
@@ -52,7 +55,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         self.assertEqual(result["status"], "broadcasting")
         self.assertTrue(result["reused"])
@@ -68,7 +71,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "submitted", "confirmed"])
@@ -125,7 +128,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await submit_live_order(
                     telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                    amount=0.01, supabase_request=request, executor=executor,
+                    amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
                 )
 
     async def test_disarmed_user_can_still_submit_sell_exit(self):
