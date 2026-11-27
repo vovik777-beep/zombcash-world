@@ -71,6 +71,7 @@ class HeliusStandardWsTests(unittest.TestCase):
         buy = _normalize_helius_trade_event(self._transaction("buy"), MINT)
         sell = _normalize_helius_trade_event(self._transaction("sell"), MINT)
         self.assertEqual(buy["side"], "buy")
+        self.assertEqual(buy["source"], "helius_standard_ws")
         self.assertEqual(sell["side"], "sell")
         self.assertAlmostEqual(buy["solAmount"], 0.1)
         self.assertAlmostEqual(sell["solAmount"], 0.1)
