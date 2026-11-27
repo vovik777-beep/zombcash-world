@@ -46,6 +46,59 @@ def classify_signature_status(status: Any) -> str | None:
     return None
 
 
+async def _solana_rpc_call(method: str, params: list) -> Any:
+    rpc_url = os.getenv("HELIUS_RPC_URL", "").strip()
+    if not rpc_url.startswith("https://"):
+        raise LiveExecutionDisabled("helius_execution_rpc_not_configured")
+    payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
+    timeout = ClientTimeout(total=8, connect=3)
+    try:
+        async with ClientSession(timeout=timeout) as session:
+            async with session.post(rpc_url, json=payload) as response:
+                data = await response.json(content_type=None)
+        if response.status != 200 or not isinstance(data, dict) or data.get("error"):
+            raise LiveExecutionError("solana_rpc_request_failed")
+        return data.get("result")
+    except (LiveExecutionDisabled, LiveExecutionError):
+        raise
+    except Exception as exc:
+        log.warning("Solana RPC request inconclusive method=%s error=%s", method, type(exc).__name__)
+        raise LiveExecutionError("solana_rpc_request_inconclusive") from exc
+
+
+async def get_wallet_sol_balance_lamports(public_key: str) -> int:
+    if not MINT_RE.fullmatch(str(public_key or "")):
+        raise ValueError("invalid_wallet_public_key")
+    result = await _solana_rpc_call("getBalance", [public_key, {"commitment": "confirmed"}])
+    value = result.get("value") if isinstance(result, dict) else None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise LiveExecutionError("solana_balance_response_invalid")
+    return value
+
+
+async def fetch_confirmed_transaction(signature: str, attempts: int = 3) -> dict | None:
+    if not isinstance(signature, str) or not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{80,100}", signature):
+        return None
+    attempts = max(1, min(int(attempts), 6))
+    for attempt in range(attempts):
+        try:
+            result = await _solana_rpc_call(
+                "getTransaction",
+                [signature, {
+                    "encoding": "json",
+                    "commitment": "confirmed",
+                    "maxSupportedTransactionVersion": 0,
+                }],
+            )
+            if isinstance(result, dict) and isinstance(result.get("meta"), dict):
+                return result
+        except Exception as exc:
+            log.warning("Confirmed transaction lookup inconclusive (%s)", type(exc).__name__)
+        if attempt < attempts - 1:
+            await asyncio.sleep(0.5)
+    return None
+
+
 def live_execution_ready() -> bool:
     # The signer is implemented, but the per-user live order lifecycle is not
     # wired yet. Keep the UI/API locked until pending-order, balance, sell and

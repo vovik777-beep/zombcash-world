@@ -6,17 +6,24 @@ are implemented and tested end to end.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
+import os
 import uuid
+import time
+from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 from sniper_execution import (
     LiveExecutionDisabled,
     LiveExecutionError,
     execute_pumpportal_local_trade,
+    fetch_confirmed_transaction,
+    get_wallet_sol_balance_lamports,
     live_execution_enabled,
 )
+from sniper_live_transaction import extract_live_fill
 
 log = logging.getLogger("zombcash.sniper.live_lifecycle")
 
@@ -46,6 +53,83 @@ async def _transition(
     return result
 
 
+async def _apply_confirmed_fill(supabase_request, *, order_id, wallet_public_key, mint, side, signature, chain_slot, transaction_fetcher):
+    transaction = await transaction_fetcher(signature)
+    if not transaction:
+        return False
+    fill = extract_live_fill(transaction, wallet_public_key=wallet_public_key, mint=mint, side=side)
+    if not fill:
+        return False
+    block_time = fill.get('blockTime')
+    block_time_iso = datetime.fromtimestamp(block_time, tz=timezone.utc).isoformat() if isinstance(block_time, int) else None
+    applied = await supabase_request(
+        'POST', 'rpc/sniper_live_position_apply_fill',
+        payload={
+            'p_order_id': order_id,
+            'p_token_amount': fill['tokenAmount'],
+            'p_sol_amount': fill['solAmount'],
+            'p_fee_sol': fill['feeSol'],
+            'p_chain_slot': fill.get('slot') or chain_slot,
+            'p_block_time': block_time_iso,
+        },
+    )
+    return isinstance(applied, dict)
+
+
+async def reconcile_confirmed_live_orders(supabase_request, *, transaction_fetcher=fetch_confirmed_transaction, limit=20):
+    rows = await supabase_request('POST', 'rpc/sniper_live_unfilled_confirmed_orders', payload={})
+    if not isinstance(rows, list):
+        return {'checked': 0, 'applied': 0, 'pending': 0, 'errors': 1}
+    checked = applied = pending = errors = 0
+    for order in rows[:max(1, min(int(limit), 100))]:
+        if not isinstance(order, dict):
+            continue
+        checked += 1
+        order_id = str(order.get('order_id') or '')
+        signature = str(order.get('signature') or '')
+        mint = str(order.get('mint') or '')
+        side = str(order.get('side') or '')
+        if not order_id or not signature or not mint or side not in {'buy', 'sell'}:
+            errors += 1
+            continue
+        try:
+            wallet = await supabase_request('POST', 'rpc/sniper_live_order_wallet_get', payload={'p_order_id': order_id})
+            if not isinstance(wallet, dict) or not wallet.get('publicKey'):
+                errors += 1
+                continue
+            filled = await _apply_confirmed_fill(
+                supabase_request, order_id=order_id, wallet_public_key=str(wallet['publicKey']),
+                mint=mint, side=side, signature=signature,
+                chain_slot=order.get('chain_slot') if isinstance(order.get('chain_slot'), int) else None,
+                transaction_fetcher=transaction_fetcher,
+            )
+            if filled:
+                applied += 1
+            else:
+                pending += 1
+        except Exception as exc:
+            errors += 1
+            log.warning('Live fill reconciliation failed (%s)', type(exc).__name__)
+    return {'checked': checked, 'applied': applied, 'pending': pending, 'errors': errors}
+
+
+async def live_fill_reconciliation_worker(supabase_request, state):
+    while True:
+        try:
+            result = await reconcile_confirmed_live_orders(supabase_request)
+            state['liveFillReconcilerStatus'] = 'active' if result['checked'] else 'idle'
+            state['liveFillReconcilerLastAt'] = int(time.time() * 1000)
+            state['liveFillReconcilerLastSweep'] = result
+            if result['checked']:
+                log.info('[Sniper] Live fill reconciliation checked=%s applied=%s pending=%s errors=%s', result['checked'], result['applied'], result['pending'], result['errors'])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            state['liveFillReconcilerStatus'] = 'error'
+            state['liveFillReconcilerLastError'] = type(exc).__name__
+            log.warning('[Sniper] Live fill reconciler failed (%s)', type(exc).__name__)
+        await asyncio.sleep(10)
+
 async def submit_live_order(
     *,
     telegram_id: int,
@@ -55,6 +139,8 @@ async def submit_live_order(
     amount: float,
     supabase_request: Callable[..., Awaitable[Any]],
     executor: Callable[..., Awaitable[dict]] = execute_pumpportal_local_trade,
+    balance_checker: Callable[..., Awaitable[int]] = get_wallet_sol_balance_lamports,
+    transaction_fetcher: Callable[..., Awaitable[dict | None]] = fetch_confirmed_transaction,
     priority_fee_sol: float | None = None,
 ) -> dict:
     """Prepare, lock, sign, broadcast and record one idempotent Live order.
@@ -138,6 +224,41 @@ async def submit_live_order(
         await _transition(supabase_request, order_id, "failed", error_code="active_managed_wallet_required")
         return {"orderId": order_id, "status": "failed", "errorCode": "active_managed_wallet_required"}
 
+    execution_fee = priority_fee_sol
+    if execution_fee is None:
+        try:
+            execution_fee = float(os.getenv("SNIPER_PRIORITY_FEE_SOL", "0.00005"))
+        except (TypeError, ValueError) as exc:
+            await _transition(supabase_request, order_id, "failed", error_code="invalid_live_fee_configuration")
+            return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_fee_configuration"}
+    try:
+        execution_fee = float(execution_fee)
+    except (TypeError, ValueError):
+        await _transition(supabase_request, order_id, "failed", error_code="invalid_live_fee_configuration")
+        return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_fee_configuration"}
+    if not math.isfinite(execution_fee) or not 0 <= execution_fee <= 0.01:
+        await _transition(supabase_request, order_id, "failed", error_code="invalid_live_fee_configuration")
+        return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_fee_configuration"}
+
+    if side == "buy":
+        try:
+            reserve_sol = float(os.getenv("SNIPER_LIVE_RESERVE_SOL", "0.01"))
+        except (TypeError, ValueError):
+            reserve_sol = -1
+        if not math.isfinite(reserve_sol) or not 0 <= reserve_sol <= 1:
+            await _transition(supabase_request, order_id, "failed", error_code="invalid_live_reserve_configuration")
+            return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_reserve_configuration"}
+        try:
+            balance_lamports = await balance_checker(str(wallet["publicKey"]))
+            required_lamports = math.ceil((numeric_amount + execution_fee + reserve_sol) * 1_000_000_000)
+            if not isinstance(balance_lamports, int) or isinstance(balance_lamports, bool) or balance_lamports < required_lamports:
+                await _transition(supabase_request, order_id, "failed", error_code="insufficient_wallet_sol_balance")
+                return {"orderId": order_id, "status": "failed", "errorCode": "insufficient_wallet_sol_balance"}
+        except Exception as exc:
+            log.warning("Live wallet balance check failed (%s)", type(exc).__name__)
+            await _transition(supabase_request, order_id, "failed", error_code="solana_balance_lookup_failed")
+            return {"orderId": order_id, "status": "failed", "errorCode": "solana_balance_lookup_failed"}
+
     secret = await supabase_request(
         "POST",
         "rpc/sniper_live_order_wallet_secret",
@@ -163,7 +284,7 @@ async def submit_live_order(
             side=side,
             amount=numeric_amount,
             max_slippage_bps=max_slippage_bps,
-            priority_fee_sol=priority_fee_sol,
+            priority_fee_sol=float(execution_fee),
         )
     except LiveExecutionDisabled as exc:
         code = str(exc)[:100] or "live_execution_disabled"
@@ -223,11 +344,24 @@ async def submit_live_order(
             "errorCode": "order_ledger_update_failed",
         }
 
+    final_status = str(saved.get("status") or result_status)
+    fill_applied = False
+    if final_status == "confirmed" and signature:
+        try:
+            fill_applied = await _apply_confirmed_fill(
+                supabase_request, order_id=order_id, wallet_public_key=str(wallet["publicKey"]),
+                mint=mint, side=side, signature=signature, chain_slot=slot,
+                transaction_fetcher=transaction_fetcher,
+            )
+        except Exception as exc:
+            log.warning("Confirmed Live fill not yet applied (%s)", type(exc).__name__)
     return {
         "orderId": order_id,
-        "status": str(saved.get("status") or result_status),
+        "status": final_status,
         "signature": saved.get("signature") or signature,
         "chainSlot": saved.get("chainSlot") or slot,
         "errorCode": saved.get("errorCode") or error_code,
+        "fillApplied": fill_applied,
+        "fillPending": final_status == "confirmed" and not fill_applied,
         "reused": False,
     }

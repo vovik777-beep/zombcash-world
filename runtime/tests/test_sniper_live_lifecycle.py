@@ -1,17 +1,20 @@
 import unittest
 from unittest.mock import patch
 
-from sniper_live_lifecycle import submit_live_order
+from sniper_live_lifecycle import reconcile_confirmed_live_orders, submit_live_order
 from sniper_execution import LiveExecutionDisabled, LiveExecutionError
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 ORDER_ID = "11111111-1111-4111-8111-111111111111"
 WALLET = "11111111111111111111111111111111"
-SECRET = "test-secret-never-return-this"
+DUMMY_KEY_MATERIAL = "test-secret-never-return-this"
 
 
 class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
+    async def balance_ok(self, public_key):
+        return 100_000_000
+
     def make_supabase(self, prepared_status="prepared", settings=None):
         calls = []
         async def request(method, path, payload=None):
@@ -23,7 +26,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             if path == "rpc/sniper_live_order_wallet_get":
                 return {"walletId": "33333333-3333-4333-8333-333333333333", "publicKey": WALLET, "status": "active", "custodyMode": "managed"}
             if path == "rpc/sniper_live_order_wallet_secret":
-                return SECRET
+                return DUMMY_KEY_MATERIAL
             if path == "rpc/sniper_live_order_transition":
                 return {
                     "orderId": "22222222-2222-4222-8222-222222222222",
@@ -34,6 +37,51 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 }
             raise AssertionError("unexpected RPC: " + path)
         return request, calls
+
+    async def test_reconciler_applies_confirmed_fill_once(self):
+        calls = []
+        async def request(method, path, payload=None):
+            calls.append((path, payload or {}))
+            if path == "rpc/sniper_live_unfilled_confirmed_orders":
+                return [{"order_id": "22222222-2222-4222-8222-222222222222", "signature": "sig", "mint": MINT, "side": "buy", "chain_slot": 123}]
+            if path == "rpc/sniper_live_order_wallet_get":
+                return {"publicKey": WALLET, "status": "inactive", "custodyMode": "managed"}
+            if path == "rpc/sniper_live_position_apply_fill":
+                return {"positionId": "44444444-4444-4444-8444-444444444444", "status": "open"}
+            raise AssertionError(path)
+        tx = {
+            "slot": 123, "blockTime": 1788976012,
+            "transaction": {"message": {"accountKeys": [WALLET, "22222222222222222222222222222222"]}},
+            "meta": {
+                "err": None, "fee": 5000,
+                "preBalances": [10_000_000_000, 0],
+                "postBalances": [8_997_955_720, 2_039_280],
+                "preTokenBalances": [],
+                "postTokenBalances": [{
+                    "accountIndex": 1, "mint": MINT, "owner": WALLET,
+                    "uiTokenAmount": {"amount": "1000", "decimals": 0, "uiAmountString": "1000"},
+                }],
+            },
+        }
+        async def fetcher(signature):
+            self.assertEqual(signature, "sig")
+            return tx
+        result = await reconcile_confirmed_live_orders(request, transaction_fetcher=fetcher)
+        self.assertEqual(result, {"checked": 1, "applied": 1, "pending": 0, "errors": 0})
+        apply_call = next(payload for path, payload in calls if path == "rpc/sniper_live_position_apply_fill")
+        self.assertEqual(apply_call["p_order_id"], "22222222-2222-4222-8222-222222222222")
+        self.assertEqual(apply_call["p_token_amount"], "1000")
+
+    async def test_reconciler_does_not_call_chain_when_no_confirmed_orders(self):
+        calls = []
+        async def request(method, path, payload=None):
+            calls.append(path)
+            return []
+        async def fetcher(signature):
+            raise AssertionError("no signatures to fetch")
+        result = await reconcile_confirmed_live_orders(request, transaction_fetcher=fetcher)
+        self.assertEqual(result, {"checked": 0, "applied": 0, "pending": 0, "errors": 0})
+        self.assertEqual(calls, ["rpc/sniper_live_unfilled_confirmed_orders"])
 
     async def test_global_flag_blocks_before_order_creation(self):
         request, calls = self.make_supabase()
@@ -52,7 +100,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         self.assertEqual(result["status"], "broadcasting")
         self.assertTrue(result["reused"])
@@ -62,19 +110,35 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         request, calls = self.make_supabase()
         async def executor(**kwargs):
             self.assertEqual(kwargs["public_key"], WALLET)
-            self.assertEqual(kwargs["secret_key_base58"], SECRET)
+            self.assertEqual(kwargs["secret_key_base58"], DUMMY_KEY_MATERIAL)
             self.assertEqual(kwargs["max_slippage_bps"], 300)
             return {"status": "confirmed", "signature": "sig123", "slot": 42}
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "submitted", "confirmed"])
         self.assertEqual(result["status"], "confirmed")
         self.assertEqual(result["signature"], "sig123")
-        self.assertNotIn(SECRET, repr(result))
+        self.assertNotIn(DUMMY_KEY_MATERIAL, repr(result))
+
+    async def test_insufficient_wallet_balance_fails_before_secret_or_broadcast(self):
+        request, calls = self.make_supabase()
+        async def balance_checker(public_key):
+            return 10_000_000
+        async def executor(**kwargs):
+            raise AssertionError("executor must not be called")
+        with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
+            result = await submit_live_order(
+                telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
+                amount=0.01, supabase_request=request, executor=executor,
+                balance_checker=balance_checker,
+            )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["errorCode"], "insufficient_wallet_sol_balance")
+        self.assertFalse(any(path == "rpc/sniper_live_order_wallet_secret" for path, _ in calls))
 
     async def test_unknown_execution_is_persisted_and_not_retried(self):
         request, calls = self.make_supabase()
@@ -83,7 +147,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "unknown"])
@@ -97,9 +161,9 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             if path == "rpc/sniper_live_order_prepare":
                 return {"orderId": "22222222-2222-4222-8222-222222222222", "status": "prepared"}
             if path == "rpc/sniper_live_order_wallet_get":
-                return {"publicKey": WALLET, "status": "active"}
+                return {"walletId": "33333333-3333-4333-8333-333333333333", "publicKey": WALLET, "status": "active", "custodyMode": "managed"}
             if path == "rpc/sniper_live_order_wallet_secret":
-                return SECRET
+                return DUMMY_KEY_MATERIAL
             if path == "rpc/sniper_live_order_transition":
                 raise RuntimeError("database unavailable")
             raise AssertionError("unexpected RPC: " + path)
@@ -109,7 +173,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(RuntimeError):
                 await submit_live_order(
                     telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                    amount=0.01, supabase_request=request, executor=executor,
+                    amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
                 )
 
     async def test_disarmed_user_can_still_submit_sell_exit(self):
@@ -148,7 +212,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
-                amount=0.01, supabase_request=request, executor=executor,
+                amount=0.01, supabase_request=request, executor=executor, balance_checker=self.balance_ok,
             )
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
         self.assertEqual(transitions, ["broadcasting", "failed"])
