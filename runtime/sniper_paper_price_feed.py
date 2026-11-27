@@ -315,7 +315,14 @@ async def paper_price_mark_worker(supabase_request, state):
                     # The simple batch index can omit long-tail Solana tokens. Query token pools
                     # directly, but cap this to four per minute to stay comfortably below the
                     # public GeckoTerminal rate limit even when the open-position set grows.
-                    for index, mint in enumerate(gecko_mints[:MAX_GECKO_POOL_LOOKUPS_PER_CYCLE]):
+                    offset = int(state.get("paperPriceFeedGeckoOffset", 0)) % len(gecko_mints)
+                    pool_mints = (
+                        gecko_mints[offset:offset + MAX_GECKO_POOL_LOOKUPS_PER_CYCLE]
+                        + gecko_mints[:max(0, offset + MAX_GECKO_POOL_LOOKUPS_PER_CYCLE - len(gecko_mints))]
+                    )
+                    state["paperPriceFeedGeckoOffset"] = (offset + len(pool_mints)) % len(gecko_mints)
+                    state["paperPriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
+                    for index, mint in enumerate(pool_mints):
                         try:
                             pools = await _fetch_geckoterminal_token_pools(session, mint)
                             mark = normalize_geckoterminal_pool_mark(pools, mint)
@@ -337,9 +344,8 @@ async def paper_price_mark_worker(supabase_request, state):
                         except Exception as exc:
                             errors += 1
                             log.warning("[Sniper] GeckoTerminal token-pools fallback failed (%s)", type(exc).__name__)
-                        if index < min(len(gecko_mints), MAX_GECKO_POOL_LOOKUPS_PER_CYCLE) - 1:
+                        if index < len(pool_mints) - 1:
                             await asyncio.sleep(REQUEST_SPACING_SECONDS)
-                    no_pair += max(0, len(gecko_mints) - MAX_GECKO_POOL_LOOKUPS_PER_CYCLE)
 
             state["paperPriceFeedStatus"] = "active"
             state["paperPriceFeedMints"] = len(mints)
