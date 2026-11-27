@@ -10,11 +10,11 @@ TOKEN_ACCOUNT = "22222222222222222222222222222222"
 
 def make_tx(*, side="buy", token_amount="1000", fee=5000):
     if side == "buy":
-        pre_wallet, post_wallet = 10_000_000_000, 8_997_955_000
+        pre_wallet, post_wallet = 10_000_000_000, 8_997_955_720
         pre_token_lamports, post_token_lamports = 0, 2_039_280
         pre_token_amount, post_token_amount = None, token_amount
     else:
-        pre_wallet, post_wallet = 8_997_955_000, 9_999_995_000
+        pre_wallet, post_wallet = 8_997_955_000, 9_999_989_280
         pre_token_lamports, post_token_lamports = 2_039_280, 0
         pre_token_amount, post_token_amount = token_amount, None
 
