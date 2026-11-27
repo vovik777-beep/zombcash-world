@@ -85,7 +85,9 @@ async def submit_live_order(
         "rpc/sniper_user_settings_get",
         payload={"p_telegram_id": telegram_id},
     )
-    if not isinstance(settings, dict) or settings.get("mode") != "live" or not settings.get("enabled") or not settings.get("live_armed"):
+    if not isinstance(settings, dict):
+        raise LiveExecutionDisabled("live_user_settings_unavailable")
+    if side == "buy" and (settings.get("mode") != "live" or not settings.get("enabled") or not settings.get("live_armed")):
         raise LiveExecutionDisabled("live_trading_not_armed")
     try:
         max_slippage_bps = int(settings.get("max_slippage_bps", 300))
