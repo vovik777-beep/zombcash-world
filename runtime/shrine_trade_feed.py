@@ -85,12 +85,30 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                             except asyncio.TimeoutError:
                                 continue
                             now_ms = int(time.time() * 1000)
-                            if now_ms - queued_at >= 60_000 or mint in active or len(active) >= 20:
+                            if now_ms - queued_at >= 60_000:
+                                feed_state["shrineTradeQueueExpired"] = int(feed_state.get("shrineTradeQueueExpired", 0)) + 1
+                                continue
+                            if not MINT_RE.fullmatch(str(mint or "")):
+                                feed_state["shrineTradeLastInvalidReason"] = "invalid_queued_mint"
+                                continue
+                            if mint in active:
+                                continue
+                            if len(active) >= 20:
+                                feed_state["shrineTradeQueueDeferred"] = int(feed_state.get("shrineTradeQueueDeferred", 0)) + 1
+                                try:
+                                    mint_queue.put_nowait((mint, queued_at))
+                                except asyncio.QueueFull:
+                                    feed_state["shrineTradeQueueDrops"] = int(feed_state.get("shrineTradeQueueDrops", 0)) + 1
+                                await asyncio.sleep(0.5)
                                 continue
                             packet = "42" + json.dumps(["subscribe_trades", {"mint": mint}], separators=(",", ":"))
                             await ws.send_str(packet)
                             active[mint] = time.monotonic()
                             feed_state["shrineTradeSubscriptions"] = len(active)
+                            feed_state["shrineTradeSubscriptionsSent"] = int(feed_state.get("shrineTradeSubscriptionsSent", 0)) + 1
+                            feed_state["shrineTradeLastSubscriptionAt"] = int(time.time() * 1000)
+                            feed_state["shrineTradeLastSubscriptionMint"] = mint
+                            log.info("[Sniper] Shrine trade subscription sent mint=%s active=%s", mint, len(active))
                             async def expire(target):
                                 await asyncio.sleep(60)
                                 if target in active and not ws.closed:
@@ -128,14 +146,32 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                             if event_name != "trade":
                                 continue
                             feed_state["shrineTradeEventsSeen"] = int(feed_state.get("shrineTradeEventsSeen", 0)) + 1
+                            feed_state["shrineTradeLastEventAt"] = int(time.time() * 1000)
+                            feed_state["shrineTradeLastEventMint"] = str(payload.get("mint") or "")[:64] if isinstance(payload, dict) else None
                             normalized = normalize_shrine_trade(payload)
                             if not normalized:
+                                feed_state["shrineTradeInvalidEvents"] = int(feed_state.get("shrineTradeInvalidEvents", 0)) + 1
+                                if not isinstance(payload, dict):
+                                    reason = "payload_not_object"
+                                elif not payload.get("mint"):
+                                    reason = "missing_mint"
+                                elif not payload.get("signature"):
+                                    reason = "missing_signature"
+                                elif str(payload.get("quote") or payload.get("quoteMint") or "") != SOL_MINT:
+                                    reason = "quote_not_sol"
+                                elif not isinstance(payload.get("is_buy"), bool):
+                                    reason = "invalid_is_buy"
+                                else:
+                                    reason = "invalid_amount_or_price_or_timestamp"
+                                feed_state["shrineTradeLastInvalidReason"] = reason
+                                log.info("[Sniper] Shrine trade event rejected reason=%s", reason)
                                 continue
                             try:
                                 await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized})
                                 feed_state["tradesReceived"] = int(feed_state.get("tradesReceived", 0)) + 1
                                 feed_state["lastTradeAt"] = int(time.time() * 1000)
                                 feed_state["shrineTradeLastError"] = None
+                                feed_state["shrineTradeLastInvalidReason"] = None
                             except Exception as exc:
                                 feed_state["shrineTradePersistErrors"] = int(feed_state.get("shrineTradePersistErrors", 0)) + 1
                                 feed_state["shrineTradeLastError"] = type(exc).__name__
