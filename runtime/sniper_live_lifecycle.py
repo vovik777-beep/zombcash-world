@@ -96,6 +96,7 @@ async def reconcile_unknown_live_orders(supabase_request, *, signature_status_fe
             chain_status = await signature_status_fetcher(signature)
             classified = classify_signature_status(chain_status)
             if classified not in {"confirmed", "failed"}:
+                await supabase_request("POST", "rpc/sniper_live_order_unknown_reconciliation_touch", payload={"p_order_id": order_id})
                 pending += 1
                 continue
             slot = chain_status.get("slot") if isinstance(chain_status.get("slot"), int) else None
@@ -106,6 +107,10 @@ async def reconcile_unknown_live_orders(supabase_request, *, signature_status_fe
                 failed += 1
         except Exception as exc:
             errors += 1
+            try:
+                await supabase_request("POST", "rpc/sniper_live_order_unknown_reconciliation_touch", payload={"p_order_id": order_id})
+            except Exception:
+                pass
             log.warning("Unknown Live order reconciliation failed (%s)", type(exc).__name__)
     return {"checked": checked, "confirmed": confirmed, "failed": failed, "pending": pending, "errors": errors}
 
@@ -136,6 +141,7 @@ async def reconcile_confirmed_live_orders(supabase_request, *, transaction_fetch
                 chain_slot=order.get('chain_slot') if isinstance(order.get('chain_slot'), int) else None,
                 transaction_fetcher=transaction_fetcher,
             )
+            await supabase_request("POST", "rpc/sniper_live_order_fill_reconciliation_touch", payload={"p_order_id": order_id})
             if filled:
                 applied += 1
             else:
