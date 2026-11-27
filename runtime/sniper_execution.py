@@ -66,6 +66,16 @@ async def _solana_rpc_call(method: str, params: list) -> Any:
         raise LiveExecutionError("solana_rpc_request_inconclusive") from exc
 
 
+async def check_execution_rpc() -> bool:
+    """Perform a minimal RPC preflight only when an operator is enabling Live."""
+    try:
+        slot = await _solana_rpc_call("getSlot", [{"commitment": "confirmed"}])
+        return isinstance(slot, int) and not isinstance(slot, bool) and slot > 0
+    except Exception as exc:
+        log.warning("Live execution RPC preflight failed (%s)", type(exc).__name__)
+        return False
+
+
 async def get_wallet_sol_balance_lamports(public_key: str) -> int:
     if not MINT_RE.fullmatch(str(public_key or "")):
         raise ValueError("invalid_wallet_public_key")

@@ -2465,11 +2465,12 @@ async def sniper_trade_latest(request):
 
 
 
-async def _sniper_live_engine_status():
-    from sniper_execution import live_execution_enabled, live_execution_ready
+async def _sniper_live_engine_status(*, check_rpc=False):
+    from sniper_execution import check_execution_rpc, live_execution_enabled, live_execution_ready
     code_ready = bool(live_execution_ready())
     global_enabled = bool(live_execution_enabled())
     database_ready = False
+    rpc_operational = None
     checks = {}
     try:
         health = await _supabase_request("POST", "rpc/sniper_live_engine_health", payload={})
@@ -2478,11 +2479,14 @@ async def _sniper_live_engine_status():
             checks = health.get("checks") if isinstance(health.get("checks"), dict) else {}
     except Exception as exc:
         checks = {"databaseHealthError": type(exc).__name__}
+    if code_ready and global_enabled and check_rpc:
+        rpc_operational = await check_execution_rpc()
     return {
         "codeReady": code_ready,
         "databaseReady": database_ready,
         "globalEnabled": global_enabled,
-        "available": code_ready and database_ready and global_enabled,
+        "rpcOperational": rpc_operational,
+        "available": code_ready and database_ready and global_enabled and rpc_operational is True,
         "checks": checks,
     }
 
@@ -2509,14 +2513,16 @@ async def sniper_settings_update(request):
             return web.json_response({
                 "error": "Type ENABLE LIVE TRADING to explicitly arm real-money trading."
             }, status=400)
-        live_status = await _sniper_live_engine_status()
+        live_status = await _sniper_live_engine_status(check_rpc=True)
         if not live_status["available"]:
             if not live_status["codeReady"]:
                 message = "Live execution RPC configuration is incomplete."
             elif not live_status["databaseReady"]:
                 message = "Live engine database migrations are incomplete or unhealthy."
-            else:
+            elif not live_status["globalEnabled"]:
                 message = "The global Live execution switch is disabled. No real trades can be sent."
+            else:
+                message = "The configured Solana RPC is unavailable or has exhausted its quota. Live remains locked."
             return web.json_response({
                 "error": message,
                 "liveExecutionAvailable": False,
