@@ -1,8 +1,3 @@
--- Add PumpPortal as an independently attributed secondary trade source.
-ALTER TABLE sniper.token_trades DROP CONSTRAINT IF EXISTS token_trades_source_check;
-ALTER TABLE sniper.token_trades ADD CONSTRAINT token_trades_source_check
-    CHECK (source IN ('pumpdev','pumpportal','helius_standard_ws','legacy_unattributed'));
-
 -- Preserve provenance of every newly received trade without guessing the origin of old rows.
 ALTER TABLE sniper.token_trades
     ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT 'legacy_unattributed';
