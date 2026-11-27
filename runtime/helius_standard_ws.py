@@ -233,6 +233,29 @@ def _normalize_pumpfun_log_trade(event, mint: str, signature: str, event_index: 
     }
 
 
+async def _consume_helius_frame_budget(supabase_request, frame_bytes: int, lookup: bool):
+    """Count every WSS frame, but skip optional PumpSwap RPC lookups after their cap."""
+    budget = await supabase_request(
+        "POST", "rpc/sniper_helius_budget_consume",
+        payload={"p_bytes": frame_bytes, "p_lookup": bool(lookup)},
+    )
+    if (
+        lookup
+        and isinstance(budget, dict)
+        and budget.get("allowed") is not True
+        and budget.get("reason") == "lookup_budget_exhausted"
+    ):
+        # The lookup cap applies only to optional getTransaction calls. Do not
+        # tear down logsSubscribe: direct Pump.fun TradeEvent decoding is free.
+        budget = await supabase_request(
+            "POST", "rpc/sniper_helius_budget_consume",
+            payload={"p_bytes": frame_bytes, "p_lookup": False},
+        )
+        if isinstance(budget, dict) and budget.get("allowed") is True:
+            budget["lookupSkippedDueToBudget"] = True
+    return budget
+
+
 async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supabase_request, state):
     """Use only Standard logsSubscribe, four mint filters, and persistent hard budgets."""
     backoff = 15
@@ -363,10 +386,12 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                               and not pumpfun_events and looks_like_pumpswap_trade
                                               and signature not in seen_signatures)
                             try:
-                                budget = await supabase_request(
-                                    "POST", "rpc/sniper_helius_budget_consume",
-                                    payload={"p_bytes": frame_bytes, "p_lookup": lookup},
+                                budget = await _consume_helius_frame_budget(
+                                    supabase_request, frame_bytes, lookup
                                 )
+                                if isinstance(budget, dict) and budget.pop("lookupSkippedDueToBudget", False):
+                                    lookup = False
+                                    state["heliusLookupBudgetSkips"] = int(state.get("heliusLookupBudgetSkips", 0)) + 1
                             except Exception as exc:
                                 state["heliusError"] = "budget_rpc_unavailable"
                                 budget_rpc_failed = True
