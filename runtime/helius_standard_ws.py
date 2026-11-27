@@ -9,6 +9,8 @@ import time
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType
+from soi.sources.pumpfun import extract_trade_events
+
 
 log = logging.getLogger("zombcash.sniper.helius")
 MINT_RE = __import__("re").compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -193,6 +195,42 @@ def _normalize_helius_trade_event(transaction_result, mint: str, signature: str 
     }
 
 
+def _normalize_pumpfun_log_trade(event, mint: str, signature: str, event_index: int = 0):
+    """Normalize a Pump.fun TradeEvent directly from logs; no getTransaction RPC required."""
+    if not isinstance(event, dict) or event.get("mint") != mint or not MINT_RE.fullmatch(str(mint or "")):
+        return None
+    quote_mint = str(event.get("quote_mint") or "")
+    if quote_mint not in ("11111111111111111111111111111111", "So11111111111111111111111111111111111111112"):
+        return None
+    try:
+        sol_lamports = int(event.get("sol_amount"))
+        token_raw = int(event.get("token_amount"))
+    except (TypeError, ValueError):
+        return None
+    sol_amount = sol_lamports / 1_000_000_000
+    token_amount = token_raw / 1_000_000
+    if sol_amount <= 0 or token_amount <= 0:
+        return None
+    price = sol_amount / token_amount
+    if not math.isfinite(price) or price <= 0:
+        return None
+    tx_signature = str(signature or "").strip()
+    if not tx_signature:
+        return None
+    if event_index:
+        tx_signature = f"{tx_signature[:118]}:{event_index}"
+    return {
+        "mint": mint,
+        "signature": tx_signature[:128],
+        "side": "buy" if bool(event.get("is_buy")) else "sell",
+        "solAmount": sol_amount,
+        "tokenAmount": token_amount,
+        "priceSol": price,
+        "eventAt": int(time.time() * 1000),
+        "trader": str(event.get("user") or "")[:64],
+    }
+
+
 async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supabase_request, state):
     """Use only Standard logsSubscribe, four mint filters, and persistent hard budgets."""
     backoff = 15
@@ -293,6 +331,7 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                             signature = ""
                             mint_for_signature = ""
                             lookup = False
+                            pumpfun_events = []
                             if isinstance(payload, dict) and payload.get("method") == "logsNotification":
                                 params = payload.get("params") if isinstance(payload.get("params"), dict) else {}
                                 result = params.get("result") if isinstance(params.get("result"), dict) else {}
@@ -300,13 +339,27 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                 signature = str(value.get("signature") or "").strip()
                                 mint_for_signature = subscription_mints.get(params.get("subscription"), "")
                                 log_lines = value.get("logs") if isinstance(value.get("logs"), list) else []
-                                looks_like_swap = any(
+                                if signature and mint_for_signature and value.get("err") is None:
+                                    try:
+                                        pumpfun_events = [
+                                            event for event in extract_trade_events(log_lines)
+                                            if event.get("mint") == mint_for_signature
+                                        ]
+                                    except Exception:
+                                        pumpfun_events = []
+                                looks_like_pumpswap_trade = any(
+                                    "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA" in str(line)
+                                    for line in log_lines
+                                ) and any(
                                     marker in str(line).lower()
                                     for line in log_lines
                                     for marker in ("instruction: buy", "instruction: sell", "instruction: swap")
                                 )
+                                # Pump.fun events are decoded from the log payload directly.
+                                # Only PumpSwap events fall back to a metered getTransaction lookup.
                                 lookup = bool(signature and mint_for_signature and value.get("err") is None
-                                              and looks_like_swap and signature not in seen_signatures)
+                                              and not pumpfun_events and looks_like_pumpswap_trade
+                                              and signature not in seen_signatures)
                             try:
                                 budget = await supabase_request(
                                     "POST", "rpc/sniper_helius_budget_consume",
@@ -338,6 +391,35 @@ async def helius_trade_worker(launch_enabled, active_mints, mints_changed, supab
                                     pending_requests.pop(response_id, None)
                                     state["heliusError"] = "logs_subscribe_rejected"
                                     raise RuntimeError("Helius logsSubscribe rejected")
+                                if pumpfun_events and signature and signature not in seen_signatures:
+                                    seen_signatures.add(signature)
+                                    if len(seen_signatures) > 2000:
+                                        seen_signatures.clear()
+                                    for event_index, event in enumerate(pumpfun_events):
+                                        normalized = _normalize_pumpfun_log_trade(
+                                            event, mint_for_signature, signature, event_index
+                                        )
+                                        if not normalized:
+                                            state["heliusTradesSkipped"] = int(state.get("heliusTradesSkipped", 0)) + 1
+                                            continue
+                                        try:
+                                            persisted = await supabase_request(
+                                                "POST", "rpc/sniper_trade_upsert",
+                                                payload={"p_event": normalized},
+                                            )
+                                            if isinstance(persisted, dict) and persisted.get("ignored"):
+                                                state["heliusTradesSkipped"] = int(state.get("heliusTradesSkipped", 0)) + 1
+                                            elif isinstance(persisted, dict) and not persisted.get("duplicate"):
+                                                state["heliusTradesPersisted"] = int(state.get("heliusTradesPersisted", 0)) + 1
+                                                state["tradesReceived"] = int(state.get("tradesReceived", 0)) + 1
+                                                state["lastTradeAt"] = int(time.time() * 1000)
+                                                state["heliusLastSignature"] = normalized["signature"][:128]
+                                                state["heliusError"] = None
+                                        except asyncio.CancelledError:
+                                            raise
+                                        except Exception as exc:
+                                            state["heliusError"] = type(exc).__name__
+                                            log.warning("[Sniper] Helius Pump.fun log trade persistence failed (%s)", type(exc).__name__)
                                 if lookup:
                                     seen_signatures.add(signature)
                                     if len(seen_signatures) > 2000:
