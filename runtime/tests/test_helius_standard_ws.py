@@ -26,6 +26,7 @@ class HeliusStandardWsTests(unittest.TestCase):
             },
             "meta": {
                 "err": None,
+                "logMessages": ["Program log: Instruction: " + ("Buy" if side == "buy" else "Sell")],
                 "fee": 5000,
                 "preBalances": [pre_lamports, 2_039_280],
                 "postBalances": [post_lamports, 2_039_280],
