@@ -73,6 +73,17 @@ FEED_STATE = {
     "shrineTradeEventsSeen": 0,
     "shrineTradePersistErrors": 0,
     "shrineTradeLastError": None,
+    "shrineTradeQueued": 0,
+    "shrineTradeQueueDrops": 0,
+    "shrineTradeQueueExpired": 0,
+    "shrineTradeQueueDeferred": 0,
+    "shrineTradeSubscriptionsSent": 0,
+    "shrineTradeLastSubscriptionAt": None,
+    "shrineTradeLastSubscriptionMint": None,
+    "shrineTradeLastEventAt": None,
+    "shrineTradeLastEventMint": None,
+    "shrineTradeInvalidEvents": 0,
+    "shrineTradeLastInvalidReason": None,
 }
 
 
@@ -464,7 +475,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                             log.warning("[Sniper] PumpDev launch persist failed (%s)", type(exc).__name__)
                                     try:
                                         shrine_mint_queue.put_nowait((mint, int(time.time() * 1000)))
+                                        FEED_STATE["shrineTradeQueued"] = int(FEED_STATE.get("shrineTradeQueued", 0)) + 1
                                     except asyncio.QueueFull:
+                                        FEED_STATE["shrineTradeQueueDrops"] = int(FEED_STATE.get("shrineTradeQueueDrops", 0)) + 1
                                         log.warning("[Sniper] Shrine mint queue full; free secondary subscription skipped")
                                     if os.getenv("PUMPPORTAL_API_KEY", "").strip():
                                         try:
@@ -705,7 +718,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                 mint = launch["mint"]
                                 try:
                                     shrine_mint_queue.put_nowait((mint, int(time.time() * 1000)))
+                                    FEED_STATE["shrineTradeQueued"] = int(FEED_STATE.get("shrineTradeQueued", 0)) + 1
                                 except asyncio.QueueFull:
+                                    FEED_STATE["shrineTradeQueueDrops"] = int(FEED_STATE.get("shrineTradeQueueDrops", 0)) + 1
                                     log.warning("[Sniper] Shrine mint queue full; free secondary subscription skipped")
                                 if pumpportal_api_key:
                                     try:
@@ -875,6 +890,17 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "shrineTradeEventsSeen": int(FEED_STATE.get("shrineTradeEventsSeen", 0)),
                     "shrineTradePersistErrors": int(FEED_STATE.get("shrineTradePersistErrors", 0)),
                     "shrineTradeLastError": FEED_STATE.get("shrineTradeLastError"),
+                    "shrineTradeQueued": int(FEED_STATE.get("shrineTradeQueued", 0)),
+                    "shrineTradeQueueDrops": int(FEED_STATE.get("shrineTradeQueueDrops", 0)),
+                    "shrineTradeQueueExpired": int(FEED_STATE.get("shrineTradeQueueExpired", 0)),
+                    "shrineTradeQueueDeferred": int(FEED_STATE.get("shrineTradeQueueDeferred", 0)),
+                    "shrineTradeSubscriptionsSent": int(FEED_STATE.get("shrineTradeSubscriptionsSent", 0)),
+                    "shrineTradeLastSubscriptionAt": FEED_STATE.get("shrineTradeLastSubscriptionAt"),
+                    "shrineTradeLastSubscriptionMint": FEED_STATE.get("shrineTradeLastSubscriptionMint"),
+                    "shrineTradeLastEventAt": FEED_STATE.get("shrineTradeLastEventAt"),
+                    "shrineTradeLastEventMint": FEED_STATE.get("shrineTradeLastEventMint"),
+                    "shrineTradeInvalidEvents": int(FEED_STATE.get("shrineTradeInvalidEvents", 0)),
+                    "shrineTradeLastInvalidReason": FEED_STATE.get("shrineTradeLastInvalidReason"),
                 },
             })
         except Exception:
