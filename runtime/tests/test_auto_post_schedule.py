@@ -11,20 +11,23 @@ class AutoPostScheduleTests(unittest.TestCase):
     def test_editorial_rotation_is_hourly(self):
         self.assertEqual(AUTO_POST_INTERVAL_SECONDS, 60 * 60)
 
-    def test_after_dark_gets_half_of_all_slots(self):
+    def test_each_series_gets_one_slot_in_the_four_slot_cycle(self):
         names = [name for name, _style in AUTO_POST_CATEGORIES]
-        self.assertEqual(names.count("Undead After Dark"), 2)
+        self.assertEqual(len(names), 4)
+        self.assertEqual(len(set(names)), 4)
         self.assertEqual(names.count("ZombieCash Memes"), 1)
+        self.assertEqual(names.count("Undead After Dark"), 1)
         self.assertEqual(names.count("Nightmare & Horror"), 1)
+        self.assertEqual(names.count("HEROINE'S SURVIVAL DIARY"), 1)
 
-    def test_rotation_is_memes_afterdark_horror_afterdark(self):
+    def test_rotation_matches_current_four_series_cycle(self):
         self.assertEqual(
             [name for name, _style in AUTO_POST_CATEGORIES],
             [
                 "ZombieCash Memes",
                 "Undead After Dark",
                 "Nightmare & Horror",
-                "Undead After Dark",
+                "HEROINE'S SURVIVAL DIARY",
             ],
         )
 
