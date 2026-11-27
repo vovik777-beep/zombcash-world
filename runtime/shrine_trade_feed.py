@@ -20,22 +20,30 @@ def normalize_shrine_trade(payload):
         return None
     mint = str(payload.get("mint") or "").strip()
     signature = str(payload.get("signature") or "").strip()
-    quote = str(payload.get("quote") or payload.get("quoteMint") or "")
+    quote = str(payload.get("quote") or payload.get("quoteMint") or "").strip()
     if not MINT_RE.fullmatch(mint) or not signature:
-        return None
-    if quote != SOL_MINT:
         return None
     is_buy = payload.get("is_buy")
     if not isinstance(is_buy, bool):
         return None
     try:
-        sol_amount = float(payload.get("sol_amount") if payload.get("sol_amount") is not None else payload.get("quote_amount"))
+        raw_sol_amount = payload.get("sol_amount")
+        # Shrine converts USDC/USDT/USD1 quote amounts to SOL in sol_amount.
+        # quote_amount is only a valid SOL fallback when the quote is explicitly WSOL.
+        if raw_sol_amount is None and quote in {SOL_MINT, "SOL", "WSOL"}:
+            raw_sol_amount = payload.get("quote_amount")
+        sol_amount = float(raw_sol_amount)
         token_amount = float(payload.get("token_amount"))
-        price = float(payload.get("price"))
+        quote_price = float(payload.get("price"))
         timestamp = float(payload.get("timestamp"))
     except (TypeError, ValueError):
         return None
-    if not all(math.isfinite(v) and v > 0 for v in (sol_amount, token_amount, price, timestamp)):
+    if not all(math.isfinite(v) and v > 0 for v in (sol_amount, token_amount, quote_price, timestamp)):
+        return None
+    # price is denominated in the pool's quote asset. Use Shrine's SOL-normalized
+    # trade value to persist a consistent SOL/token price for every supported quote.
+    price_sol = sol_amount / token_amount
+    if not math.isfinite(price_sol) or price_sol <= 0:
         return None
     return {
         "mint": mint,
@@ -43,7 +51,7 @@ def normalize_shrine_trade(payload):
         "side": "buy" if is_buy else "sell",
         "solAmount": sol_amount,
         "tokenAmount": token_amount,
-        "priceSol": price,
+        "priceSol": price_sol,
         "marketCapSol": None,
         "vSolInBondingCurve": None,
         "vTokensInBondingCurve": None,

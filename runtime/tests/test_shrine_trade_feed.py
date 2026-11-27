@@ -25,8 +25,38 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
         self.assertEqual(event["side"], "buy")
         self.assertEqual(event["tokenAmount"], 31952.74)
         self.assertEqual(event["solAmount"], 0.0161)
-        self.assertEqual(event["priceSol"], 0.000000504)
+        self.assertAlmostEqual(event["priceSol"], 0.0161 / 31952.74)
         self.assertEqual(event["eventAt"], 1788976012000)
+
+    def test_normalizes_usdc_quote_using_sol_amount(self):
+        event = normalize_shrine_trade({
+            "mint": MINT, "signature": "usdc-buy", "is_buy": True,
+            "token_amount": 1000, "quote_amount": 12.5,
+            "sol_amount": 0.08, "price": 0.0125,
+            "quote": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "timestamp": 1788976012,
+        })
+        self.assertIsNotNone(event)
+        self.assertAlmostEqual(event["priceSol"], 0.00008)
+        self.assertAlmostEqual(event["solAmount"], 0.08)
+
+    def test_accepts_missing_quote_when_sol_amount_is_explicit(self):
+        event = normalize_shrine_trade({
+            "mint": MINT, "signature": "no-quote-buy", "is_buy": True,
+            "token_amount": 200, "sol_amount": 0.04,
+            "price": 0.0002, "timestamp": 1788976012,
+        })
+        self.assertIsNotNone(event)
+        self.assertAlmostEqual(event["priceSol"], 0.0002)
+
+    def test_rejects_non_sol_quote_without_sol_normalized_amount(self):
+        self.assertIsNone(normalize_shrine_trade({
+            "mint": MINT, "signature": "usdc-no-sol", "is_buy": True,
+            "token_amount": 1000, "quote_amount": 12.5,
+            "price": 0.0125,
+            "quote": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+            "timestamp": 1788976012,
+        }))
 
     def test_normalizes_sell(self):
         event = normalize_shrine_trade({
@@ -36,10 +66,10 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
         })
         self.assertEqual(event["side"], "sell")
 
-    def test_rejects_non_sol_quote(self):
+    def test_rejects_non_sol_quote_without_sol_normalized_amount(self):
         self.assertIsNone(normalize_shrine_trade({
             "mint": MINT, "signature": "usdc-signature", "is_buy": True,
-            "token_amount": 100, "sol_amount": 0.02, "price": 0.0002,
+            "token_amount": 100, "quote_amount": 2.0, "price": 0.02,
             "quote": "USDC", "timestamp": 1788976012,
         }))
 
