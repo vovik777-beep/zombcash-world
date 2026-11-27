@@ -7,6 +7,7 @@ import math
 import os
 import re
 import time
+from urllib.parse import urlencode
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 from helius_standard_ws import helius_trade_worker
@@ -590,7 +591,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         while True:
             await launch_enabled.wait()
             try:
-                uri = "wss://pumpportal.fun/api/data"
+                pumpportal_api_key = os.getenv("PUMPPORTAL_API_KEY", "").strip()
+                uri = "wss://pumpportal.fun/api/data" + ("?" + urlencode({"api-key": pumpportal_api_key}) if pumpportal_api_key else "")
                 timeout = ClientTimeout(total=None)
                 async with ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(
@@ -609,7 +611,10 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                             "tradeStreamSource": None,
                             "subscribedMints": 0,
                         })
-                        log.info("[Sniper] PumpPortal launch-only websocket connected (newToken + migration)")
+                        subscribed_mints = {}
+                        expiry_tasks = set()
+                        FEED_STATE.update({"pumpportalTradeEnabled": bool(pumpportal_api_key), "pumpportalTradeConnected": bool(pumpportal_api_key), "pumpportalTradeStatus": "connected" if pumpportal_api_key else "launch_only_no_key", "pumpportalTradeLastError": None, "pumpportalTradeSubscriptions": 0})
+                        log.info("[Sniper] PumpPortal websocket connected; trade fallback=%s", "enabled" if pumpportal_api_key else "launch-only (API key not configured)")
                         await ws.send_json({"method": "subscribeNewToken"})
                         await ws.send_json({"method": "subscribeMigration"})
                         backoff = 120
@@ -625,6 +630,23 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     FEED_STATE["lastError"] = "PUMPPORTAL_SUBSCRIPTION_ERROR"
                                     log.warning("[Sniper] PumpPortal launch subscription error")
                                     continue
+                                tx_type = str(payload.get("txType") or "").lower()
+                                if tx_type in {"buy", "sell"}:
+                                    FEED_STATE["pumpportalTradeEventsSeen"] = int(FEED_STATE.get("pumpportalTradeEventsSeen", 0)) + 1
+                                    normalized_trade = _normalize_pumpportal_trade_event(payload)
+                                    if normalized_trade:
+                                        try:
+                                            await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized_trade})
+                                            FEED_STATE["tradesReceived"] = int(FEED_STATE.get("tradesReceived", 0)) + 1
+                                            FEED_STATE["lastTradeAt"] = int(time.time() * 1000)
+                                            FEED_STATE["pumpportalTradeLastError"] = None
+                                        except Exception as exc:
+                                            FEED_STATE["pumpportalTradePersistErrors"] = int(FEED_STATE.get("pumpportalTradePersistErrors", 0)) + 1
+                                            FEED_STATE["pumpportalTradeLastError"] = type(exc).__name__
+                                            log.warning("[Sniper] PumpPortal trade persist failed (%s)", type(exc).__name__)
+                                    else:
+                                        log.debug("[Sniper] PumpPortal trade rejected by normalizer")
+                                    continue
                                 launch = _normalize_launch_event(payload, source="pumpportal")
                                 if not launch:
                                     continue
@@ -637,6 +659,23 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                 except Exception as exc:
                                     FEED_STATE["lastError"] = type(exc).__name__
                                     log.warning("[Sniper] Could not store launch event (%s)", type(exc).__name__)
+                                mint = launch["mint"]
+                                if pumpportal_api_key and mint not in subscribed_mints and len(subscribed_mints) < 20:
+                                    await ws.send_json({"method": "subscribeTokenTrade", "keys": [mint]})
+                                    subscribed_mints[mint] = time.monotonic()
+                                    FEED_STATE["pumpportalTradeSubscriptions"] = len(subscribed_mints)
+                                    async def expire_trade_subscription(target_mint, target_ws):
+                                        await asyncio.sleep(60)
+                                        if target_mint in subscribed_mints and not target_ws.closed:
+                                            try:
+                                                await target_ws.send_json({"method": "unsubscribeTokenTrade", "keys": [target_mint]})
+                                            except Exception:
+                                                pass
+                                            subscribed_mints.pop(target_mint, None)
+                                            FEED_STATE["pumpportalTradeSubscriptions"] = len(subscribed_mints)
+                                    expiry = asyncio.create_task(expire_trade_subscription(mint, ws))
+                                    expiry_tasks.add(expiry)
+                                    expiry.add_done_callback(expiry_tasks.discard)
                             elif message.type == WSMsgType.ERROR:
                                 raise ws.exception() or RuntimeError("PumpPortal websocket error")
                             elif message.type in (WSMsgType.CLOSED, WSMsgType.CLOSE):
@@ -653,6 +692,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
             finally:
                 active_launch_ws = None
                 FEED_STATE["connected"] = False
+                FEED_STATE["pumpportalTradeConnected"] = False
+                FEED_STATE["pumpportalTradeSubscriptions"] = 0
+                FEED_STATE["pumpportalTradeStatus"] = "stopped" if not launch_enabled.is_set() else "reconnecting"
                 FEED_STATE["tradeStreamingEnabled"] = False
                 FEED_STATE["pumpPortalTradeEnabled"] = False
                 FEED_STATE["tradeStreamSource"] = None
@@ -773,6 +815,13 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "pumpdevLastMarketEvent": FEED_STATE.get("pumpdevLastMarketEvent"),
                     "pumpdevTradeRejectReasons": FEED_STATE.get("pumpdevTradeRejectReasons", {}),
                     "pumpdevTradePersistErrors": int(FEED_STATE.get("pumpdevTradePersistErrors", 0)),
+                    "pumpportalTradeEnabled": bool(FEED_STATE.get("pumpportalTradeEnabled", False)),
+                    "pumpportalTradeConnected": bool(FEED_STATE.get("pumpportalTradeConnected", False)),
+                    "pumpportalTradeStatus": FEED_STATE.get("pumpportalTradeStatus", "disabled"),
+                    "pumpportalTradeSubscriptions": int(FEED_STATE.get("pumpportalTradeSubscriptions", 0)),
+                    "pumpportalTradeEventsSeen": int(FEED_STATE.get("pumpportalTradeEventsSeen", 0)),
+                    "pumpportalTradePersistErrors": int(FEED_STATE.get("pumpportalTradePersistErrors", 0)),
+                    "pumpportalTradeLastError": FEED_STATE.get("pumpportalTradeLastError"),
                 },
             })
         except Exception:
