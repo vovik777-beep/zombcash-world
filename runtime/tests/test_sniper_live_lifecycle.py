@@ -12,17 +12,17 @@ SECRET = "test-secret-never-return-this"
 
 
 class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
-    def make_supabase(self, prepared_status="prepared"):
+    def make_supabase(self, prepared_status="prepared", settings=None):
         calls = []
         async def request(method, path, payload=None):
             calls.append((path, payload or {}))
             if path == "rpc/sniper_user_settings_get":
-                return {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
+                return settings or {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
             if path == "rpc/sniper_live_order_prepare":
-                return {"orderId": "22222222-2222-4222-8222-222222222222", "status": prepared_status}
-            if path == "rpc/sniper_wallet_get":
-                return {"publicKey": WALLET, "status": "active"}
-            if path == "rpc/sniper_wallet_secret":
+                return {"orderId": "22222222-2222-4222-8222-222222222222", "walletId": "33333333-3333-4333-8333-333333333333", "status": prepared_status}
+            if path == "rpc/sniper_live_order_wallet_get":
+                return {"walletId": "33333333-3333-4333-8333-333333333333", "publicKey": WALLET, "status": "active", "custodyMode": "managed"}
+            if path == "rpc/sniper_live_order_wallet_secret":
                 return SECRET
             if path == "rpc/sniper_live_order_transition":
                 return {
@@ -56,7 +56,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result["status"], "broadcasting")
         self.assertTrue(result["reused"])
-        self.assertFalse(any(path == "rpc/sniper_wallet_secret" for path, _ in calls))
+        self.assertFalse(any(path == "rpc/sniper_live_order_wallet_secret" for path, _ in calls))
 
     async def test_confirmed_execution_uses_broadcasting_lock_and_two_phase_confirmation(self):
         request, calls = self.make_supabase()
@@ -96,9 +96,9 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 return {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
             if path == "rpc/sniper_live_order_prepare":
                 return {"orderId": "22222222-2222-4222-8222-222222222222", "status": "prepared"}
-            if path == "rpc/sniper_wallet_get":
+            if path == "rpc/sniper_live_order_wallet_get":
                 return {"publicKey": WALLET, "status": "active"}
-            if path == "rpc/sniper_wallet_secret":
+            if path == "rpc/sniper_live_order_wallet_secret":
                 return SECRET
             if path == "rpc/sniper_live_order_transition":
                 raise RuntimeError("database unavailable")
@@ -111,6 +111,35 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
                     amount=0.01, supabase_request=request, executor=executor,
                 )
+
+    async def test_disarmed_user_can_still_submit_sell_exit(self):
+        request, calls = self.make_supabase(settings={
+            "enabled": False, "mode": "paper", "live_armed": False, "max_slippage_bps": 500,
+        })
+        async def executor(**kwargs):
+            self.assertEqual(kwargs["side"], "sell")
+            self.assertEqual(kwargs["max_slippage_bps"], 500)
+            return {"status": "confirmed", "signature": "sell-sig", "slot": 77}
+        with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
+            result = await submit_live_order(
+                telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="sell",
+                amount=1000, supabase_request=request, executor=executor,
+            )
+        self.assertEqual(result["status"], "confirmed")
+        transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]
+        self.assertEqual(transitions, ["broadcasting", "submitted", "confirmed"])
+
+    async def test_disarmed_user_cannot_submit_new_buy(self):
+        request, calls = self.make_supabase(settings={
+            "enabled": False, "mode": "paper", "live_armed": False, "max_slippage_bps": 300,
+        })
+        with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
+            with self.assertRaises(LiveExecutionDisabled):
+                await submit_live_order(
+                    telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="buy",
+                    amount=0.01, supabase_request=request,
+                )
+        self.assertFalse(any(path == "rpc/sniper_live_order_prepare" for path, _ in calls))
 
     async def test_execution_error_marks_order_failed(self):
         request, calls = self.make_supabase()

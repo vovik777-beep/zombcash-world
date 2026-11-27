@@ -85,7 +85,9 @@ async def submit_live_order(
         "rpc/sniper_user_settings_get",
         payload={"p_telegram_id": telegram_id},
     )
-    if not isinstance(settings, dict) or settings.get("mode") != "live" or not settings.get("enabled") or not settings.get("live_armed"):
+    if not isinstance(settings, dict):
+        raise LiveExecutionDisabled("live_user_settings_unavailable")
+    if side == "buy" and (settings.get("mode") != "live" or not settings.get("enabled") or not settings.get("live_armed")):
         raise LiveExecutionDisabled("live_trading_not_armed")
     try:
         max_slippage_bps = int(settings.get("max_slippage_bps", 300))
@@ -123,17 +125,23 @@ async def submit_live_order(
 
     wallet = await supabase_request(
         "POST",
-        "rpc/sniper_wallet_get",
-        payload={"p_telegram_id": telegram_id},
+        "rpc/sniper_live_order_wallet_get",
+        payload={"p_order_id": order_id},
     )
-    if not isinstance(wallet, dict) or not wallet.get("publicKey") or wallet.get("status") != "active":
+    if (
+        not isinstance(wallet, dict)
+        or not wallet.get("publicKey")
+        or wallet.get("status") != "active"
+        or wallet.get("custodyMode") != "managed"
+        or (prepared.get("walletId") and wallet.get("walletId") != prepared.get("walletId"))
+    ):
         await _transition(supabase_request, order_id, "failed", error_code="active_managed_wallet_required")
         return {"orderId": order_id, "status": "failed", "errorCode": "active_managed_wallet_required"}
 
     secret = await supabase_request(
         "POST",
-        "rpc/sniper_wallet_secret",
-        payload={"p_telegram_id": telegram_id},
+        "rpc/sniper_live_order_wallet_secret",
+        payload={"p_order_id": order_id},
     )
     if not isinstance(secret, str) or not secret:
         await _transition(supabase_request, order_id, "failed", error_code="wallet_secret_unavailable")

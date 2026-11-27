@@ -1,12 +1,12 @@
 """Strict parsing of confirmed Solana transaction fills for Live accounting."""
 from __future__ import annotations
 
-import math
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
 LAMPORTS_PER_SOL = Decimal("1000000000")
+WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
 
 
 def _account_key(value: Any) -> str | None:
@@ -93,12 +93,12 @@ def extract_live_fill(transaction: Any, *, wallet_public_key: str, mint: str, si
     if not isinstance(pre_entries, list) or not isinstance(post_entries, list):
         return None
 
-    def owned_amounts(entries):
+    def owned_amounts(entries, target_mint):
         total = Decimal(0)
         indexes = set()
         found_owner_entry = False
         for entry in entries:
-            if not isinstance(entry, dict) or entry.get("mint") != mint:
+            if not isinstance(entry, dict) or entry.get("mint") != target_mint:
                 continue
             if entry.get("owner") != wallet_public_key:
                 continue
@@ -111,9 +111,13 @@ def extract_live_fill(transaction: Any, *, wallet_public_key: str, mint: str, si
             indexes.add(index)
         return total, indexes, found_owner_entry
 
-    pre_tokens, pre_indexes, pre_found = owned_amounts(pre_entries)
-    post_tokens, post_indexes, post_found = owned_amounts(post_entries)
+    pre_tokens, pre_indexes, pre_found = owned_amounts(pre_entries, mint)
+    post_tokens, post_indexes, post_found = owned_amounts(post_entries, mint)
     if pre_tokens is None or post_tokens is None or not (pre_found or post_found):
+        return None
+    pre_wsol, pre_wsol_indexes, _ = owned_amounts(pre_entries, WRAPPED_SOL_MINT)
+    post_wsol, post_wsol_indexes, _ = owned_amounts(post_entries, WRAPPED_SOL_MINT)
+    if pre_wsol is None or post_wsol is None:
         return None
 
     token_delta = post_tokens - pre_tokens
@@ -129,6 +133,17 @@ def extract_live_fill(transaction: Any, *, wallet_public_key: str, mint: str, si
         if index >= len(pre_balances) or index >= len(post_balances):
             return None
         token_accounts_lamport_delta += post_balances[index] - pre_balances[index]
+
+    # Wrapped SOL accounts contain both rent-exempt lamports and the wrapped
+    # SOL amount. Add only the rent delta; the token amount is part of the trade.
+    wsol_indexes = pre_wsol_indexes | post_wsol_indexes
+    wsol_lamport_delta = 0
+    for index in wsol_indexes:
+        if index >= len(pre_balances) or index >= len(post_balances):
+            return None
+        wsol_lamport_delta += post_balances[index] - pre_balances[index]
+    wsol_token_delta_lamports = int((post_wsol - pre_wsol) * LAMPORTS_PER_SOL)
+    token_accounts_lamport_delta += wsol_lamport_delta - wsol_token_delta_lamports
 
     wallet_delta = post_balances[wallet_index] - pre_balances[wallet_index]
     # wallet_delta includes tx fee and ATA rent. Add those back to isolate the
