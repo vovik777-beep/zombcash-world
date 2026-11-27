@@ -6,10 +6,12 @@ are implemented and tested end to end.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import os
 import uuid
+import time
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
@@ -50,6 +52,83 @@ async def _transition(
         raise LiveExecutionError("live_order_transition_unavailable")
     return result
 
+
+async def _apply_confirmed_fill(supabase_request, *, order_id, wallet_public_key, mint, side, signature, chain_slot, transaction_fetcher):
+    transaction = await transaction_fetcher(signature)
+    if not transaction:
+        return False
+    fill = extract_live_fill(transaction, wallet_public_key=wallet_public_key, mint=mint, side=side)
+    if not fill:
+        return False
+    block_time = fill.get('blockTime')
+    block_time_iso = datetime.fromtimestamp(block_time, tz=timezone.utc).isoformat() if isinstance(block_time, int) else None
+    applied = await supabase_request(
+        'POST', 'rpc/sniper_live_position_apply_fill',
+        payload={
+            'p_order_id': order_id,
+            'p_token_amount': fill['tokenAmount'],
+            'p_sol_amount': fill['solAmount'],
+            'p_fee_sol': fill['feeSol'],
+            'p_chain_slot': fill.get('slot') or chain_slot,
+            'p_block_time': block_time_iso,
+        },
+    )
+    return isinstance(applied, dict)
+
+
+async def reconcile_confirmed_live_orders(supabase_request, *, transaction_fetcher=fetch_confirmed_transaction, limit=20):
+    rows = await supabase_request('POST', 'rpc/sniper_live_unfilled_confirmed_orders', payload={})
+    if not isinstance(rows, list):
+        return {'checked': 0, 'applied': 0, 'pending': 0, 'errors': 1}
+    checked = applied = pending = errors = 0
+    for order in rows[:max(1, min(int(limit), 100))]:
+        if not isinstance(order, dict):
+            continue
+        checked += 1
+        order_id = str(order.get('order_id') or '')
+        signature = str(order.get('signature') or '')
+        mint = str(order.get('mint') or '')
+        side = str(order.get('side') or '')
+        if not order_id or not signature or not mint or side not in {'buy', 'sell'}:
+            errors += 1
+            continue
+        try:
+            wallet = await supabase_request('POST', 'rpc/sniper_live_order_wallet_get', payload={'p_order_id': order_id})
+            if not isinstance(wallet, dict) or not wallet.get('publicKey'):
+                errors += 1
+                continue
+            filled = await _apply_confirmed_fill(
+                supabase_request, order_id=order_id, wallet_public_key=str(wallet['publicKey']),
+                mint=mint, side=side, signature=signature,
+                chain_slot=order.get('chain_slot') if isinstance(order.get('chain_slot'), int) else None,
+                transaction_fetcher=transaction_fetcher,
+            )
+            if filled:
+                applied += 1
+            else:
+                pending += 1
+        except Exception as exc:
+            errors += 1
+            log.warning('Live fill reconciliation failed (%s)', type(exc).__name__)
+    return {'checked': checked, 'applied': applied, 'pending': pending, 'errors': errors}
+
+
+async def live_fill_reconciliation_worker(supabase_request, state):
+    while True:
+        try:
+            result = await reconcile_confirmed_live_orders(supabase_request)
+            state['liveFillReconcilerStatus'] = 'active' if result['checked'] else 'idle'
+            state['liveFillReconcilerLastAt'] = int(time.time() * 1000)
+            state['liveFillReconcilerLastSweep'] = result
+            if result['checked']:
+                log.info('[Sniper] Live fill reconciliation checked=%s applied=%s pending=%s errors=%s', result['checked'], result['applied'], result['pending'], result['errors'])
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            state['liveFillReconcilerStatus'] = 'error'
+            state['liveFillReconcilerLastError'] = type(exc).__name__
+            log.warning('[Sniper] Live fill reconciler failed (%s)', type(exc).__name__)
+        await asyncio.sleep(10)
 
 async def submit_live_order(
     *,
@@ -269,29 +348,11 @@ async def submit_live_order(
     fill_applied = False
     if final_status == "confirmed" and signature:
         try:
-            transaction = await transaction_fetcher(signature)
-            fill = extract_live_fill(
-                transaction,
-                wallet_public_key=str(wallet["publicKey"]),
-                mint=mint,
-                side=side,
-            ) if transaction else None
-            if fill:
-                block_time = fill.get("blockTime")
-                block_time_iso = datetime.fromtimestamp(block_time, tz=timezone.utc).isoformat() if isinstance(block_time, int) else None
-                applied = await supabase_request(
-                    "POST",
-                    "rpc/sniper_live_position_apply_fill",
-                    payload={
-                        "p_order_id": order_id,
-                        "p_token_amount": fill["tokenAmount"],
-                        "p_sol_amount": fill["solAmount"],
-                        "p_fee_sol": fill["feeSol"],
-                        "p_chain_slot": fill.get("slot") or slot,
-                        "p_block_time": block_time_iso,
-                    },
-                )
-                fill_applied = isinstance(applied, dict)
+            fill_applied = await _apply_confirmed_fill(
+                supabase_request, order_id=order_id, wallet_public_key=str(wallet["publicKey"]),
+                mint=mint, side=side, signature=signature, chain_slot=slot,
+                transaction_fetcher=transaction_fetcher,
+            )
         except Exception as exc:
             log.warning("Confirmed Live fill not yet applied (%s)", type(exc).__name__)
     return {
