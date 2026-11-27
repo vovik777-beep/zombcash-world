@@ -53,7 +53,6 @@ async def submit_live_order(
     mint: str,
     side: str,
     amount: float,
-    max_slippage_bps: int,
     supabase_request: Callable[..., Awaitable[Any]],
     executor: Callable[..., Awaitable[dict]] = execute_pumpportal_local_trade,
     priority_fee_sol: float | None = None,
@@ -81,8 +80,19 @@ async def submit_live_order(
         raise ValueError("invalid_trade_amount") from exc
     if not math.isfinite(numeric_amount) or numeric_amount <= 0:
         raise ValueError("invalid_trade_amount")
-    if not isinstance(max_slippage_bps, int) or isinstance(max_slippage_bps, bool) or not 1 <= max_slippage_bps <= 5000:
-        raise ValueError("invalid_slippage")
+    settings = await supabase_request(
+        "POST",
+        "rpc/sniper_user_settings_get",
+        payload={"p_telegram_id": telegram_id},
+    )
+    if not isinstance(settings, dict) or settings.get("mode") != "live" or not settings.get("enabled") or not settings.get("live_armed"):
+        raise LiveExecutionDisabled("live_trading_not_armed")
+    try:
+        max_slippage_bps = int(settings.get("max_slippage_bps", 300))
+    except (TypeError, ValueError) as exc:
+        raise LiveExecutionError("invalid_stored_slippage") from exc
+    if not 1 <= max_slippage_bps <= 5000:
+        raise LiveExecutionError("invalid_stored_slippage")
 
     amount_unit = "sol" if side == "buy" else "token"
     prepared = await supabase_request(
