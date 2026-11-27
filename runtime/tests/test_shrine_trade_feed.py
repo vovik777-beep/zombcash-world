@@ -104,10 +104,6 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
         self.assertIsNone(normalize_shrine_trade({**base, "signature": "x", "price": float("nan")}))
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class FakeWebSocket:
     def __init__(self, *, closed=False, error=None):
         self.closed = closed
@@ -138,3 +134,7 @@ class ShrineSafeSendTests(unittest.IsolatedAsyncioTestCase):
         result = await _safe_ws_send(ws, "42packet", asyncio.Lock())
         self.assertFalse(result)
         self.assertEqual(ws.sent, [])
+
+
+if __name__ == "__main__":
+    unittest.main()
