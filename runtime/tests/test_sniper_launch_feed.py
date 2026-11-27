@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
+from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _pumpdev_safe_subscription_limit, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -118,10 +118,17 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIn('"pumpdevStatus": "connected" if status == "ok" else "connected_free"', source)
         self.assertIn('"paperEngineEnabled": False', source)
 
+    def test_pumpdev_subscription_limit_tracks_effective_tier(self):
+        self.assertEqual(_pumpdev_safe_subscription_limit(False), 4)
+        self.assertEqual(_pumpdev_safe_subscription_limit(True, "ok"), 20)
+        self.assertEqual(_pumpdev_safe_subscription_limit(True, "free", "free"), 20)
+        self.assertEqual(_pumpdev_safe_subscription_limit(True, "free", "anonymous"), 4)
+        self.assertEqual(_pumpdev_safe_subscription_limit(True, "free"), 4)
+
     def test_free_tier_request_budget_is_conservative(self):
         from pathlib import Path
         source = Path("sniper_launch_feed.py").read_text(encoding="utf-8")
-        self.assertIn("max_subs = 20 if api_key else 4", source)
+        self.assertIn("max_subs = subscription_limit", source)
         self.assertIn("heartbeat=30", source)
         self.assertIn("backoff = 30", source)
         self.assertIn("backoff = 120", source)
