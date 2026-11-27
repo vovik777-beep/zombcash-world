@@ -177,7 +177,12 @@ AS $function$
        select count(*) from sniper.live_orders o
         where o.telegram_id = s.telegram_id
           and o.side = 'buy'
-          and o.status in ('prepared','broadcasting','submitted','unknown')
+          and (
+            o.status in ('prepared','broadcasting','submitted','unknown')
+            or (o.status = 'confirmed' and not exists (
+              select 1 from sniper.live_order_fills f where f.order_id = o.id
+            ))
+          )
      ) < s.max_open_positions
      and not (
        s.max_daily_loss_sol > 0
