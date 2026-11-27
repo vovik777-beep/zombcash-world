@@ -9,6 +9,7 @@ from sniper_paper_price_feed import (
     normalize_geckoterminal_paper_mark,
     normalize_geckoterminal_pool_mark,
     paper_price_mark_worker,
+    select_gecko_pool_mints,
 )
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -194,6 +195,38 @@ class PaperPriceFeedTests(unittest.TestCase):
             pair("", MINT, SOL_MINT, 0.001, 1000),
         ], MINT)
         self.assertIsNone(result)
+
+
+class GeckoPoolSelectionTests(unittest.TestCase):
+    def test_one_mint_is_selected_once(self):
+        selected, next_offset = select_gecko_pool_mints(["a"], offset=0, limit=4)
+        self.assertEqual(selected, ["a"])
+        self.assertEqual(next_offset, 0)
+
+    def test_two_mints_are_selected_once_each(self):
+        selected, next_offset = select_gecko_pool_mints(["a", "b"], offset=0, limit=4)
+        self.assertEqual(selected, ["a", "b"])
+        self.assertEqual(len(selected), len(set(selected)))
+        self.assertEqual(next_offset, 0)
+
+    def test_three_mints_are_selected_once_each(self):
+        selected, next_offset = select_gecko_pool_mints(["a", "b", "c"], offset=1, limit=4)
+        self.assertEqual(selected, ["b", "c", "a"])
+        self.assertEqual(len(selected), len(set(selected)))
+        self.assertEqual(next_offset, 1)
+
+    def test_five_mints_rotate_within_four_lookup_limit(self):
+        first, next_offset = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=0, limit=4)
+        second, next_offset2 = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=next_offset, limit=4)
+        self.assertEqual(first, ["a", "b", "c", "d"])
+        self.assertEqual(second, ["e", "a", "b", "c"])
+        self.assertEqual(len(first), len(set(first)))
+        self.assertEqual(len(second), len(set(second)))
+        self.assertEqual(next_offset, 4)
+        self.assertEqual(next_offset2, 3)
+
+    def test_empty_input_returns_no_requests(self):
+        self.assertEqual(select_gecko_pool_mints([], offset=0, limit=4), ([], 0))
 
 
 class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
