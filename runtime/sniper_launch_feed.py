@@ -10,6 +10,7 @@ import time
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 from helius_standard_ws import helius_trade_worker
+from sniper_paper_price_feed import paper_price_mark_worker
 
 log = logging.getLogger("zombcash.sniper.launches")
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -33,6 +34,13 @@ FEED_STATE = {
     "heliusMissingKeyLogged": False,
     "paperEngineEnabled": False,
     "paperEngineStatus": "waiting_for_trade_data_source",
+    "paperPriceFeedStatus": "starting",
+    "paperPriceFeedMints": 0,
+    "paperPriceFeedUpdated": 0,
+    "paperPriceFeedNoPair": 0,
+    "paperPriceFeedErrors": 0,
+    "paperPriceFeedLastAt": None,
+    "paperPriceFeedError": None,
     "pumpdevEnabled": False,
     "pumpdevConnected": False,
     "pumpdevStatus": "disabled",
@@ -603,6 +611,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
             helius_trade_worker(launch_enabled, helius_active_mints, helius_mints_changed, supabase_request, FEED_STATE)
         )
         application["sniper_paper_watchdog_task"] = asyncio.create_task(paper_position_watchdog())
+        application["sniper_paper_price_feed_task"] = asyncio.create_task(
+            paper_price_mark_worker(supabase_request, FEED_STATE)
+        )
         if restored:
             log.info("[Sniper] Restored launch monitoring from persisted Paper-mode user settings")
         else:
@@ -613,7 +624,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         trade_task = application.get("pumpdev_trade_feed_task")
         watchdog_task = application.get("sniper_paper_watchdog_task")
         helius_task = application.get("helius_trade_feed_task")
-        for running_task in (task, trade_task, helius_task, watchdog_task):
+        price_task = application.get("sniper_paper_price_feed_task")
+        for running_task in (task, trade_task, helius_task, watchdog_task, price_task):
             if running_task:
                 running_task.cancel()
                 try:
@@ -662,6 +674,13 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "paperEngineStatus": FEED_STATE["paperEngineStatus"],
                     "paperEngineLastSweepAt": FEED_STATE.get("paperEngineLastSweepAt"),
                     "paperEngineLastSweep": FEED_STATE.get("paperEngineLastSweep"),
+                    "paperPriceFeedStatus": FEED_STATE.get("paperPriceFeedStatus"),
+                    "paperPriceFeedMints": int(FEED_STATE.get("paperPriceFeedMints", 0)),
+                    "paperPriceFeedUpdated": int(FEED_STATE.get("paperPriceFeedUpdated", 0)),
+                    "paperPriceFeedNoPair": int(FEED_STATE.get("paperPriceFeedNoPair", 0)),
+                    "paperPriceFeedErrors": int(FEED_STATE.get("paperPriceFeedErrors", 0)),
+                    "paperPriceFeedLastAt": FEED_STATE.get("paperPriceFeedLastAt"),
+                    "paperPriceFeedError": FEED_STATE.get("paperPriceFeedError"),
                     "pumpdevEnabled": bool(FEED_STATE.get("pumpdevEnabled", False)),
                     "pumpdevConnected": bool(FEED_STATE.get("pumpdevConnected", False)),
                     "pumpdevStatus": FEED_STATE.get("pumpdevStatus", "disabled"),
