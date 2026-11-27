@@ -129,8 +129,10 @@ begin
       'createdAt', v_order.created_at
     );
   end if;
-  if not v_settings.enabled or v_settings.mode <> 'live'
-     or not v_settings.live_armed or v_settings.live_confirmed_at is null then
+  if p_side = 'buy' and (
+       not v_settings.enabled or v_settings.mode <> 'live'
+       or not v_settings.live_armed or v_settings.live_confirmed_at is null
+     ) then
     raise exception 'live_trading_not_armed';
   end if;
 
@@ -327,15 +329,17 @@ begin
   if not found then raise exception 'live_order_not_found'; end if;
 
   if p_status = 'broadcasting' then
-    perform 1
-      from sniper.user_settings settings
-     where settings.telegram_id = v_order.telegram_id
-       and settings.enabled = true
-       and settings.mode = 'live'
-       and settings.live_armed = true
-       and settings.live_confirmed_at is not null
-     for update;
-    if not found then raise exception 'live_trading_not_armed'; end if;
+    if v_order.side = 'buy' then
+      perform 1
+        from sniper.user_settings settings
+       where settings.telegram_id = v_order.telegram_id
+         and settings.enabled = true
+         and settings.mode = 'live'
+         and settings.live_armed = true
+         and settings.live_confirmed_at is not null
+       for update;
+      if not found then raise exception 'live_trading_not_armed'; end if;
+    end if;
     perform 1
       from sniper.wallets w
      where w.id = v_order.wallet_id
