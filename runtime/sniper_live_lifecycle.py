@@ -123,8 +123,8 @@ async def submit_live_order(
 
     wallet = await supabase_request(
         "POST",
-        "rpc/sniper_wallet_get",
-        payload={"p_telegram_id": telegram_id},
+        "rpc/sniper_live_order_wallet_get",
+        payload={"p_order_id": order_id},
     )
     if not isinstance(wallet, dict) or not wallet.get("publicKey") or wallet.get("status") != "active":
         await _transition(supabase_request, order_id, "failed", error_code="active_managed_wallet_required")
@@ -132,8 +132,8 @@ async def submit_live_order(
 
     secret = await supabase_request(
         "POST",
-        "rpc/sniper_wallet_secret",
-        payload={"p_telegram_id": telegram_id},
+        "rpc/sniper_live_order_wallet_secret",
+        payload={"p_order_id": order_id},
     )
     if not isinstance(secret, str) or not secret:
         await _transition(supabase_request, order_id, "failed", error_code="wallet_secret_unavailable")
