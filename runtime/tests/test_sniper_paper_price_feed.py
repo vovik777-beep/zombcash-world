@@ -2,7 +2,12 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from sniper_paper_price_feed import SOL_MINT, normalize_dexscreener_paper_mark, paper_price_mark_worker
+from sniper_paper_price_feed import (
+    SOL_MINT,
+    normalize_dexscreener_paper_mark,
+    normalize_jupiter_paper_mark,
+    paper_price_mark_worker,
+)
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 
@@ -49,6 +54,27 @@ class PaperPriceFeedTests(unittest.TestCase):
             pair("pair-zero", MINT, SOL_MINT, 0, 100000),
         ], MINT)
         self.assertIsNone(result)
+
+    def test_jupiter_price_is_converted_from_usd_to_sol(self):
+        prices = {
+            SOL_MINT: {"usdPrice": 150.0, "liquidity": 1000000},
+            MINT: {"usdPrice": 0.00003, "liquidity": 1200},
+        }
+        mark = normalize_jupiter_paper_mark(prices, MINT, observed_at_ms=123456)
+        self.assertEqual(mark["source"], "jupiter")
+        self.assertAlmostEqual(mark["priceSol"], 0.0000002)
+        self.assertEqual(mark["liquidityUsd"], 1200)
+        self.assertEqual(mark["pairAddress"], "jupiter-price-v3")
+        self.assertEqual(mark["observedAt"], 123456)
+
+    def test_jupiter_omitted_or_low_liquidity_token_has_no_mark(self):
+        self.assertIsNone(normalize_jupiter_paper_mark(
+            {SOL_MINT: {"usdPrice": 150}}, MINT
+        ))
+        self.assertIsNone(normalize_jupiter_paper_mark({
+            SOL_MINT: {"usdPrice": 150},
+            MINT: {"usdPrice": 0.00003, "liquidity": 499.99},
+        }, MINT))
 
     def test_rejects_invalid_mint_or_missing_pair_address(self):
         self.assertIsNone(normalize_dexscreener_paper_mark([], "not-a-mint"))
