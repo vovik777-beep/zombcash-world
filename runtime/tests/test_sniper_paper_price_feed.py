@@ -6,6 +6,7 @@ from sniper_paper_price_feed import (
     SOL_MINT,
     normalize_dexscreener_paper_mark,
     normalize_jupiter_paper_mark,
+    normalize_geckoterminal_paper_mark,
     paper_price_mark_worker,
 )
 
@@ -74,6 +75,37 @@ class PaperPriceFeedTests(unittest.TestCase):
         self.assertIsNone(normalize_jupiter_paper_mark({
             SOL_MINT: {"usdPrice": 150},
             MINT: {"usdPrice": 0.00003, "liquidity": 499.99},
+        }, MINT))
+
+    def test_geckoterminal_batch_price_converts_usd_to_sol(self):
+        payload = {
+            "data": {
+                "attributes": {
+                    "token_prices": {
+                        SOL_MINT: "150",
+                        MINT: "0.00003",
+                    },
+                    "total_reserve_in_usd": {
+                        MINT: "1200",
+                    },
+                }
+            }
+        }
+        mark = normalize_geckoterminal_paper_mark(payload, MINT, observed_at_ms=123456)
+        self.assertEqual(mark["source"], "geckoterminal")
+        self.assertAlmostEqual(mark["priceSol"], 0.0000002)
+        self.assertEqual(mark["liquidityUsd"], 1200)
+        self.assertEqual(mark["pairAddress"], "geckoterminal-simple-price")
+        self.assertEqual(mark["observedAt"], 123456)
+
+    def test_geckoterminal_rejects_missing_sol_price_or_low_reserve(self):
+        self.assertIsNone(normalize_geckoterminal_paper_mark({
+            "data": {"attributes": {"token_prices": {MINT: "0.00003"},
+                                    "total_reserve_in_usd": {MINT: "1200"}}}
+        }, MINT))
+        self.assertIsNone(normalize_geckoterminal_paper_mark({
+            "data": {"attributes": {"token_prices": {SOL_MINT: "150", MINT: "0.00003"},
+                                    "total_reserve_in_usd": {MINT: "499.99"}}}
         }, MINT))
 
     def test_rejects_invalid_mint_or_missing_pair_address(self):
