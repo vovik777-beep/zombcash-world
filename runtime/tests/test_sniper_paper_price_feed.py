@@ -7,6 +7,7 @@ from sniper_paper_price_feed import (
     normalize_dexscreener_paper_mark,
     normalize_jupiter_paper_mark,
     normalize_geckoterminal_paper_mark,
+    normalize_geckoterminal_pool_mark,
     paper_price_mark_worker,
 )
 
@@ -107,6 +108,85 @@ class PaperPriceFeedTests(unittest.TestCase):
             "data": {"attributes": {"token_prices": {SOL_MINT: "150", MINT: "0.00003"},
                                     "total_reserve_in_usd": {MINT: "499.99"}}}
         }, MINT))
+
+    def test_geckoterminal_token_pools_selects_highest_liquidity_pool(self):
+        payload = {
+            "data": [
+                {
+                    "attributes": {
+                        "address": "PoolLow111111111111111111111111111111111",
+                        "base_token_price_native_currency": "0.000001",
+                        "quote_token_price_native_currency": "12",
+                        "reserve_in_usd": "800",
+                    },
+                    "relationships": {
+                        "base_token": {"data": {"id": "solana_" + MINT}},
+                        "quote_token": {"data": {"id": "solana_" + SOL_MINT}},
+                    },
+                },
+                {
+                    "attributes": {
+                        "address": "PoolHigh1111111111111111111111111111111",
+                        "base_token_price_native_currency": "0.000002",
+                        "quote_token_price_native_currency": "8",
+                        "reserve_in_usd": "2500",
+                    },
+                    "relationships": {
+                        "base_token": {"data": {"id": "solana_" + MINT}},
+                        "quote_token": {"data": {"id": "solana_" + SOL_MINT}},
+                    },
+                },
+            ]
+        }
+        mark = normalize_geckoterminal_pool_mark(payload, MINT, observed_at_ms=123456)
+        self.assertEqual(mark["source"], "geckoterminal")
+        self.assertEqual(mark["pairAddress"], "PoolHigh1111111111111111111111111111111")
+        self.assertEqual(mark["priceSol"], 0.000002)
+        self.assertEqual(mark["liquidityUsd"], 2500)
+        self.assertEqual(mark["observedAt"], 123456)
+
+    def test_geckoterminal_token_pools_supports_token_as_quote(self):
+        payload = {
+            "data": [{
+                "attributes": {
+                    "address": "PoolInverse111111111111111111111111111111",
+                    "base_token_price_native_currency": "12",
+                    "quote_token_price_native_currency": "0.000003",
+                    "reserve_in_usd": "1000",
+                },
+                "relationships": {
+                    "base_token": {"data": {"id": "solana_" + SOL_MINT}},
+                    "quote_token": {"data": {"id": "solana_" + MINT}},
+                },
+            }]
+        }
+        mark = normalize_geckoterminal_pool_mark(payload, MINT)
+        self.assertEqual(mark["priceSol"], 0.000003)
+
+    def test_geckoterminal_token_pools_rejects_wrong_token_and_low_reserve(self):
+        payload = {
+            "data": [
+                {
+                    "attributes": {"address": "PoolWrong111111111111111111111111111111",
+                                   "base_token_price_native_currency": "0.000001",
+                                   "reserve_in_usd": "5000"},
+                    "relationships": {
+                        "base_token": {"data": {"id": "solana_OtherToken"}},
+                        "quote_token": {"data": {"id": "solana_" + SOL_MINT}},
+                    },
+                },
+                {
+                    "attributes": {"address": "PoolLow111111111111111111111111111111111",
+                                   "base_token_price_native_currency": "0.000001",
+                                   "reserve_in_usd": "499.99"},
+                    "relationships": {
+                        "base_token": {"data": {"id": "solana_" + MINT}},
+                        "quote_token": {"data": {"id": "solana_" + SOL_MINT}},
+                    },
+                },
+            ]
+        }
+        self.assertIsNone(normalize_geckoterminal_pool_mark(payload, MINT))
 
     def test_rejects_invalid_mint_or_missing_pair_address(self):
         self.assertIsNone(normalize_dexscreener_paper_mark([], "not-a-mint"))
