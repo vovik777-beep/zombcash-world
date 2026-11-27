@@ -7,6 +7,7 @@ import math
 import os
 import re
 import time
+from urllib.parse import urlencode
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 from helius_standard_ws import helius_trade_worker
@@ -57,6 +58,13 @@ FEED_STATE = {
     "pumpdevLastMarketEvent": None,
     "pumpdevTradeRejectReasons": {},
     "pumpdevTradePersistErrors": 0,
+    "pumpPortalTradeEnabled": False,
+    "pumpPortalTradeConnected": False,
+    "pumpportalTradeStatus": "disabled",
+    "pumpportalTradeSubscriptions": 0,
+    "pumpportalTradeEventsSeen": 0,
+    "pumpportalTradePersistErrors": 0,
+    "pumpportalTradeLastError": None,
 }
 
 
@@ -223,8 +231,57 @@ def _normalize_pumpdev_trade_event(payload):
             "source": "pumpdev"}
 
 
+def _normalize_pumpportal_trade_event(payload):
+    """Normalize PumpPortal trade payloads to the shared on-chain trade schema."""
+    if not isinstance(payload, dict) or str(payload.get("txType") or "").lower() not in {"buy", "sell"}:
+        return None
+    mint = str(payload.get("mint") or "").strip()
+    signature = str(payload.get("signature") or "").strip()
+    if not MINT_RE.fullmatch(mint) or not signature:
+        return None
+    if payload.get("quoteMint") and payload.get("quoteMint") != PUMPDEV_SOL_MINT:
+        return None
+    sol_amount = _safe_number(payload.get("solAmount"))
+    token_raw = _safe_number(payload.get("tokenAmount"))
+    # PumpPortal payloads expose tokenAmount and curve reserves in UI units.
+    token_amount = token_raw
+    v_sol = _safe_number(payload.get("vSolInBondingCurve"))
+    v_tokens = _safe_number(payload.get("vTokensInBondingCurve"))
+    if str(payload.get("pool") or payload.get("source") or "").lower() in {"pumpswap", "pump-amm"}:
+        quote = _safe_number(payload.get("poolEffectiveQuoteReservesUi"))
+        if quote is None:
+            quote = _safe_number(payload.get("poolEffectiveQuoteReserves"))
+            quote = quote / 1_000_000_000 if quote is not None else None
+        base = _safe_number(payload.get("poolBaseReservesUi"))
+        if base is None:
+            base = _safe_number(payload.get("poolBaseReserves"))
+            base = base / 1_000_000 if base is not None else None
+        v_sol, v_tokens = quote, base
+    if sol_amount is None or sol_amount <= 0 or token_amount is None or token_amount <= 0:
+        return None
+    if v_sol is None or v_sol <= 0 or v_tokens is None or v_tokens <= 0:
+        # Derive price from trade amounts when reserve fields are absent.
+        price = sol_amount / token_amount
+        v_sol, v_tokens = price, 1.0
+    else:
+        price = v_sol / v_tokens
+    if not math.isfinite(price) or price <= 0:
+        return None
+    stamp = _safe_number(payload.get("timestamp"))
+    event_at = int(time.time() * 1000) if stamp is None or stamp <= 0 else int(stamp * 1000 if stamp < 1_000_000_000_000 else stamp)
+    return {
+        "mint": mint, "signature": signature[:128], "side": str(payload["txType"]).lower(),
+        "solAmount": sol_amount, "tokenAmount": token_amount, "priceSol": price,
+        "marketCapSol": _safe_number(payload.get("marketCapSol")),
+        "vSolInBondingCurve": v_sol, "vTokensInBondingCurve": v_tokens,
+        "eventAt": event_at, "trader": str(payload.get("traderPublicKey") or "")[:64] or None,
+        "source": "pumpportal",
+    }
+
+
 def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_origin: str) -> None:
     launch_enabled = asyncio.Event()
+    pumpportal_mint_queue = asyncio.Queue(maxsize=1000)
     active_launch_ws = None
     active_pumpdev_ws = None
     helius_active_mints = {}
@@ -396,6 +453,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         except Exception as exc:
                                             FEED_STATE["pumpdevLastError"] = type(exc).__name__
                                             log.warning("[Sniper] PumpDev launch persist failed (%s)", type(exc).__name__)
+                                    if os.getenv("PUMPPORTAL_API_KEY", "").strip():
+                                        try:
+                                            pumpportal_mint_queue.put_nowait((mint, int(time.time() * 1000)))
+                                        except asyncio.QueueFull:
+                                            log.warning("[Sniper] PumpPortal mint queue full; secondary subscription skipped")
                                     now_ms = int(time.time() * 1000)
                                     pending_mints = {item[0] for item in pending}
                                     if MINT_RE.fullmatch(mint) and mint not in active and mint not in pending_mints:
@@ -533,7 +595,8 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         while True:
             await launch_enabled.wait()
             try:
-                uri = "wss://pumpportal.fun/api/data"
+                pumpportal_api_key = os.getenv("PUMPPORTAL_API_KEY", "").strip()
+                uri = "wss://pumpportal.fun/api/data" + ("?" + urlencode({"api-key": pumpportal_api_key}) if pumpportal_api_key else "")
                 timeout = ClientTimeout(total=None)
                 async with ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(
@@ -552,9 +615,38 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                             "tradeStreamSource": None,
                             "subscribedMints": 0,
                         })
-                        log.info("[Sniper] PumpPortal launch-only websocket connected (newToken + migration)")
+                        subscribed_mints = {}
+                        expiry_tasks = set()
+                        FEED_STATE.update({"pumpPortalTradeEnabled": bool(pumpportal_api_key), "pumpPortalTradeConnected": bool(pumpportal_api_key), "pumpportalTradeStatus": "connected" if pumpportal_api_key else "launch_only_no_key", "pumpportalTradeLastError": None, "pumpportalTradeSubscriptions": 0})
+                        log.info("[Sniper] PumpPortal websocket connected; trade fallback=%s", "enabled" if pumpportal_api_key else "launch-only (API key not configured)")
                         await ws.send_json({"method": "subscribeNewToken"})
                         await ws.send_json({"method": "subscribeMigration"})
+                        async def pumpportal_subscription_dispatcher():
+                            while launch_enabled.is_set() and not ws.closed:
+                                try:
+                                    mint, queued_at_ms = await asyncio.wait_for(pumpportal_mint_queue.get(), timeout=2)
+                                except asyncio.TimeoutError:
+                                    continue
+                                if int(time.time() * 1000) - queued_at_ms >= 60_000:
+                                    continue
+                                if mint in subscribed_mints or len(subscribed_mints) >= 20:
+                                    continue
+                                await ws.send_json({"method": "subscribeTokenTrade", "keys": [mint]})
+                                subscribed_mints[mint] = time.monotonic()
+                                FEED_STATE["pumpportalTradeSubscriptions"] = len(subscribed_mints)
+                                async def expire_trade_subscription(target_mint, target_ws):
+                                    await asyncio.sleep(60)
+                                    if target_mint in subscribed_mints and not target_ws.closed:
+                                        try:
+                                            await target_ws.send_json({"method": "unsubscribeTokenTrade", "keys": [target_mint]})
+                                        except Exception:
+                                            pass
+                                        subscribed_mints.pop(target_mint, None)
+                                        FEED_STATE["pumpportalTradeSubscriptions"] = len(subscribed_mints)
+                                expiry = asyncio.create_task(expire_trade_subscription(mint, ws))
+                                expiry_tasks.add(expiry)
+                                expiry.add_done_callback(expiry_tasks.discard)
+                        dispatcher_task = asyncio.create_task(pumpportal_subscription_dispatcher())
                         backoff = 120
                         async for message in ws:
                             if message.type == WSMsgType.TEXT:
@@ -568,6 +660,23 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     FEED_STATE["lastError"] = "PUMPPORTAL_SUBSCRIPTION_ERROR"
                                     log.warning("[Sniper] PumpPortal launch subscription error")
                                     continue
+                                tx_type = str(payload.get("txType") or "").lower()
+                                if tx_type in {"buy", "sell"}:
+                                    FEED_STATE["pumpportalTradeEventsSeen"] = int(FEED_STATE.get("pumpportalTradeEventsSeen", 0)) + 1
+                                    normalized_trade = _normalize_pumpportal_trade_event(payload)
+                                    if normalized_trade:
+                                        try:
+                                            await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized_trade})
+                                            FEED_STATE["tradesReceived"] = int(FEED_STATE.get("tradesReceived", 0)) + 1
+                                            FEED_STATE["lastTradeAt"] = int(time.time() * 1000)
+                                            FEED_STATE["pumpportalTradeLastError"] = None
+                                        except Exception as exc:
+                                            FEED_STATE["pumpportalTradePersistErrors"] = int(FEED_STATE.get("pumpportalTradePersistErrors", 0)) + 1
+                                            FEED_STATE["pumpportalTradeLastError"] = type(exc).__name__
+                                            log.warning("[Sniper] PumpPortal trade persist failed (%s)", type(exc).__name__)
+                                    else:
+                                        log.debug("[Sniper] PumpPortal trade rejected by normalizer")
+                                    continue
                                 launch = _normalize_launch_event(payload, source="pumpportal")
                                 if not launch:
                                     continue
@@ -580,6 +689,12 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                 except Exception as exc:
                                     FEED_STATE["lastError"] = type(exc).__name__
                                     log.warning("[Sniper] Could not store launch event (%s)", type(exc).__name__)
+                                mint = launch["mint"]
+                                if pumpportal_api_key:
+                                    try:
+                                        pumpportal_mint_queue.put_nowait((mint, int(time.time() * 1000)))
+                                    except asyncio.QueueFull:
+                                        log.warning("[Sniper] PumpPortal mint queue full; secondary subscription skipped")
                             elif message.type == WSMsgType.ERROR:
                                 raise ws.exception() or RuntimeError("PumpPortal websocket error")
                             elif message.type in (WSMsgType.CLOSED, WSMsgType.CLOSE):
@@ -594,8 +709,17 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     await asyncio.sleep(backoff)
                     backoff = min(backoff * 2, 600)
             finally:
+                if "dispatcher_task" in locals() and not dispatcher_task.done():
+                    dispatcher_task.cancel()
+                    try:
+                        await dispatcher_task
+                    except asyncio.CancelledError:
+                        pass
                 active_launch_ws = None
                 FEED_STATE["connected"] = False
+                FEED_STATE["pumpPortalTradeConnected"] = False
+                FEED_STATE["pumpportalTradeSubscriptions"] = 0
+                FEED_STATE["pumpportalTradeStatus"] = "stopped" if not launch_enabled.is_set() else "reconnecting"
                 FEED_STATE["tradeStreamingEnabled"] = False
                 FEED_STATE["pumpPortalTradeEnabled"] = False
                 FEED_STATE["tradeStreamSource"] = None
@@ -716,6 +840,13 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "pumpdevLastMarketEvent": FEED_STATE.get("pumpdevLastMarketEvent"),
                     "pumpdevTradeRejectReasons": FEED_STATE.get("pumpdevTradeRejectReasons", {}),
                     "pumpdevTradePersistErrors": int(FEED_STATE.get("pumpdevTradePersistErrors", 0)),
+                    "pumpportalTradeEnabled": bool(FEED_STATE.get("pumpPortalTradeEnabled", False)),
+                    "pumpportalTradeConnected": bool(FEED_STATE.get("pumpPortalTradeConnected", False)),
+                    "pumpportalTradeStatus": FEED_STATE.get("pumpportalTradeStatus", "disabled"),
+                    "pumpportalTradeSubscriptions": int(FEED_STATE.get("pumpportalTradeSubscriptions", 0)),
+                    "pumpportalTradeEventsSeen": int(FEED_STATE.get("pumpportalTradeEventsSeen", 0)),
+                    "pumpportalTradePersistErrors": int(FEED_STATE.get("pumpportalTradePersistErrors", 0)),
+                    "pumpportalTradeLastError": FEED_STATE.get("pumpportalTradeLastError"),
                 },
             })
         except Exception:

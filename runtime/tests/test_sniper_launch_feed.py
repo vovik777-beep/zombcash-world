@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _pumpdev_effective_api_key, _pumpdev_safe_subscription_limit, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
+from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _normalize_pumpportal_trade_event, _pumpdev_effective_api_key, _pumpdev_safe_subscription_limit, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -49,7 +49,7 @@ class SniperLaunchFeedTests(unittest.TestCase):
         source = Path("sniper_launch_feed.py").read_text(encoding="utf-8")
         self.assertIn("helius_trade_worker", source)
         self.assertNotIn("logsSubscribe", source)
-        self.assertIn("subscribeTokenTrade", source)  # PumpDev only; PumpPortal remains launch-only
+        self.assertIn("subscribeTokenTrade", source)  # both providers use per-mint subscriptions
         self.assertNotIn("HELIUS_API_KEY", source)
         self.assertNotIn("transactionSubscribe", source)
 
@@ -97,6 +97,29 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertEqual(event["tokenAmount"], 0.4)
         self.assertEqual(event["vSolInBondingCurve"], 85)
         self.assertEqual(event["vTokensInBondingCurve"], 206900000)
+
+    def test_normalizes_pumpportal_trade_event(self):
+        event = _normalize_pumpportal_trade_event({
+            "txType": "buy", "mint": MINT, "signature": "portalSig",
+            "solAmount": 0.25, "tokenAmount": 500000,
+            "vSolInBondingCurve": 32, "vTokensInBondingCurve": 800000000,
+            "marketCapSol": 40, "timestamp": 1743782400,
+            "traderPublicKey": "PortalTrader",
+        })
+        self.assertIsNotNone(event)
+        self.assertEqual(event["source"], "pumpportal")
+        self.assertEqual(event["side"], "buy")
+        self.assertEqual(event["tokenAmount"], 500000)
+        self.assertAlmostEqual(event["priceSol"], 0.00000004)
+        self.assertEqual(event["trader"], "PortalTrader")
+
+    def test_rejects_non_sol_pumpportal_trade(self):
+        payload = {
+            "txType": "sell", "mint": MINT, "signature": "portalSig2",
+            "quoteMint": "USDC", "solAmount": 0.1, "tokenAmount": 100,
+            "vSolInBondingCurve": 30, "vTokensInBondingCurve": 900000000,
+        }
+        self.assertIsNone(_normalize_pumpportal_trade_event(payload))
 
     def test_rejects_non_sol_or_unresolved_pumpdev_trade(self):
         base = {
