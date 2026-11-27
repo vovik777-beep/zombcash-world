@@ -188,7 +188,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
             await launch_enabled.wait()
             api_key = os.getenv("PUMPDEV_API_KEY", "").strip()
             try:
-                active = []
+                # Hold each trade subscription for the full first-minute entry window.
+                # A FIFO queue prevents a burst of launches from immediately evicting
+                # the oldest mint before its first trades can arrive.
+                active = {}
+                pending = []
                 subscribed_new_tokens = False
                 authenticated = not bool(api_key)
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
@@ -280,14 +284,21 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         except Exception as exc:
                                             FEED_STATE["pumpdevLastError"] = type(exc).__name__
                                             log.warning("[Sniper] PumpDev launch persist failed (%s)", type(exc).__name__)
-                                    if MINT_RE.fullmatch(mint) and mint not in active:
-                                        max_subs = 25 if api_key else 5
-                                        if len(active) >= max_subs:
-                                            old = active.pop(0)
-                                            await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old]})
-                                        active.append(mint)
-                                        await ws.send_json({"method": "subscribeTokenTrade", "keys": [mint]})
-                                        FEED_STATE["pumpdevSubscribedMints"] = len(active)
+                                    if MINT_RE.fullmatch(mint) and mint not in active and mint not in pending:
+                                        pending.append(mint)
+                                    now_ms = int(time.time() * 1000)
+                                    expired = [key for key, started_ms in active.items()
+                                               if now_ms - started_ms >= 60_000]
+                                    for old_mint in expired:
+                                        await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old_mint]})
+                                        active.pop(old_mint, None)
+                                    max_subs = 25 if api_key else 5
+                                    while pending and len(active) < max_subs:
+                                        next_mint = pending.pop(0)
+                                        active[next_mint] = now_ms
+                                        await ws.send_json({"method": "subscribeTokenTrade", "keys": [next_mint]})
+                                    FEED_STATE["pumpdevSubscribedMints"] = len(active)
+                                    FEED_STATE["pumpdevPendingMints"] = len(pending)
                                     continue
                                 tx_type = str(event.get("txType") or "").lower()
                                 tx_counts = FEED_STATE.setdefault("pumpdevTxTypeCounts", {})
