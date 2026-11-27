@@ -1,6 +1,8 @@
+import asyncio
 import unittest
+from unittest.mock import AsyncMock, patch
 
-from sniper_paper_price_feed import SOL_MINT, normalize_dexscreener_paper_mark
+from sniper_paper_price_feed import SOL_MINT, normalize_dexscreener_paper_mark, paper_price_mark_worker
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 
@@ -54,6 +56,23 @@ class PaperPriceFeedTests(unittest.TestCase):
             pair("", MINT, SOL_MINT, 0.001, 1000),
         ], MINT)
         self.assertIsNone(result)
+
+
+class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_reads_open_mints_through_service_role_rpc(self):
+        calls = []
+
+        async def supabase_request(method, path, *, payload=None, params=None):
+            calls.append((method, path, payload, params))
+            return []
+
+        state = {}
+        with patch("sniper_paper_price_feed.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError)):
+            with self.assertRaises(asyncio.CancelledError):
+                await paper_price_mark_worker(supabase_request, state)
+
+        self.assertEqual(calls, [("POST", "rpc/sniper_open_paper_position_mints", {}, None)])
+        self.assertEqual(state["paperPriceFeedStatus"], "waiting_for_open_positions")
 
 
 if __name__ == "__main__":

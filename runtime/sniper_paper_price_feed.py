@@ -83,9 +83,9 @@ async def paper_price_mark_worker(supabase_request, state):
     while True:
         try:
             rows = await supabase_request(
-                "GET",
-                "sniper.paper_positions",
-                params={"select": "mint", "status": "eq.open", "order": "opened_at.asc", "limit": str(MAX_MINTS_PER_CYCLE)},
+                "POST",
+                "rpc/sniper_open_paper_position_mints",
+                payload={},
             )
             mints = []
             seen = set()
