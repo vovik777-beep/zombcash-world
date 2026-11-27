@@ -524,10 +524,6 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                             "pumpPortalTradeEnabled": False,
                             "tradeStreamSource": None,
                             "subscribedMints": 0,
-                            "heliusEnabled": False,
-                            "heliusConnected": False,
-                            "heliusConnectedAt": None,
-                            "heliusError": "LIVE_EXECUTION_ONLY",
                         })
                         log.info("[Sniper] PumpPortal launch-only websocket connected (newToken + migration)")
                         await ws.send_json({"method": "subscribeNewToken"})
@@ -657,6 +653,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "heliusLastSignature": FEED_STATE["heliusLastSignature"],
                     "heliusPendingWrites": int(FEED_STATE.get("heliusPendingWrites", 0)),
                     "heliusPersistErrors": int(FEED_STATE.get("heliusPersistErrors", 0)),
+                    "heliusMessagesReceived": int(FEED_STATE.get("heliusMessagesReceived", 0)),
+                    "heliusTransactionsLookedUp": int(FEED_STATE.get("heliusTransactionsLookedUp", 0)),
+                    "heliusTradesPersisted": int(FEED_STATE.get("heliusTradesPersisted", 0)),
+                    "heliusTradesSkipped": int(FEED_STATE.get("heliusTradesSkipped", 0)),
+                    "heliusBudget": FEED_STATE.get("heliusBudget"),
                     "paperEngineEnabled": bool(FEED_STATE["paperEngineEnabled"]),
                     "paperEngineStatus": FEED_STATE["paperEngineStatus"],
                     "paperEngineLastSweepAt": FEED_STATE.get("paperEngineLastSweepAt"),
