@@ -109,8 +109,8 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event["source"], "pumpportal")
         self.assertEqual(event["side"], "buy")
-        self.assertEqual(event["tokenAmount"], 0.5)
-        self.assertAlmostEqual(event["priceSol"], 0.04)
+        self.assertEqual(event["tokenAmount"], 500000)
+        self.assertAlmostEqual(event["priceSol"], 0.00000004)
         self.assertEqual(event["trader"], "PortalTrader")
 
     def test_rejects_non_sol_pumpportal_trade(self):
