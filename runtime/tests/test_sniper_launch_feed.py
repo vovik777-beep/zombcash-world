@@ -44,13 +44,14 @@ class SniperLaunchFeedTests(unittest.TestCase):
             event = _normalize_launch_event({"txType": "create", "mint": MINT, "timestamp": 1700000000})
         self.assertEqual(event["eventAt"], 1700000000000)
 
-    def test_discovery_module_has_no_paid_trade_or_helius_stream(self):
+    def test_helius_standard_ws_is_separate_from_pumpportal_launch_worker(self):
         from pathlib import Path
         source = Path("sniper_launch_feed.py").read_text(encoding="utf-8")
+        self.assertIn("helius_trade_worker", source)
         self.assertNotIn("logsSubscribe", source)
         self.assertIn("subscribeTokenTrade", source)  # PumpDev only; PumpPortal remains launch-only
         self.assertNotIn("HELIUS_API_KEY", source)
-        self.assertNotIn("_helius_trade_worker", source)
+        self.assertNotIn("transactionSubscribe", source)
 
     def test_rejects_non_finite_numeric_values(self):
         self.assertIsNone(_safe_number(float("nan")))
