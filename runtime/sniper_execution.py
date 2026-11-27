@@ -100,10 +100,11 @@ async def fetch_confirmed_transaction(signature: str, attempts: int = 3) -> dict
 
 
 def live_execution_ready() -> bool:
-    # The signer is implemented, but the per-user live order lifecycle is not
-    # wired yet. Keep the UI/API locked until pending-order, balance, sell and
-    # recovery flows are complete and integration-tested.
-    return False
+    # Code readiness is separate from the global deployment kill switch.
+    # Actual arming also requires database health and SNIPER_LIVE_TRADING_ENABLED.
+    rpc_url = os.getenv("HELIUS_RPC_URL", "").strip()
+    trade_url = os.getenv("PUMPPORTAL_TRADE_LOCAL_URL", "https://pumpportal.fun/api/trade-local").strip()
+    return rpc_url.startswith("https://") and trade_url.startswith("https://")
 
 
 def _positive_amount(value: Any, name: str) -> float:
