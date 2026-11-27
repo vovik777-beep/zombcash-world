@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 from helius_standard_ws import helius_trade_worker
 from sniper_paper_price_feed import paper_price_mark_worker
+from shrine_trade_feed import shrine_trade_worker
 
 log = logging.getLogger("zombcash.sniper.launches")
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -65,6 +66,13 @@ FEED_STATE = {
     "pumpportalTradeEventsSeen": 0,
     "pumpportalTradePersistErrors": 0,
     "pumpportalTradeLastError": None,
+    "shrineTradeEnabled": True,
+    "shrineTradeConnected": False,
+    "shrineTradeStatus": "waiting",
+    "shrineTradeSubscriptions": 0,
+    "shrineTradeEventsSeen": 0,
+    "shrineTradePersistErrors": 0,
+    "shrineTradeLastError": None,
 }
 
 
@@ -282,6 +290,7 @@ def _normalize_pumpportal_trade_event(payload):
 def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_origin: str) -> None:
     launch_enabled = asyncio.Event()
     pumpportal_mint_queue = asyncio.Queue(maxsize=1000)
+    shrine_mint_queue = asyncio.Queue(maxsize=1000)
     active_launch_ws = None
     active_pumpdev_ws = None
     helius_active_mints = {}
@@ -453,11 +462,15 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         except Exception as exc:
                                             FEED_STATE["pumpdevLastError"] = type(exc).__name__
                                             log.warning("[Sniper] PumpDev launch persist failed (%s)", type(exc).__name__)
+                                    try:
+                                        shrine_mint_queue.put_nowait((mint, int(time.time() * 1000)))
+                                    except asyncio.QueueFull:
+                                        log.warning("[Sniper] Shrine mint queue full; free secondary subscription skipped")
                                     if os.getenv("PUMPPORTAL_API_KEY", "").strip():
                                         try:
                                             pumpportal_mint_queue.put_nowait((mint, int(time.time() * 1000)))
                                         except asyncio.QueueFull:
-                                            log.warning("[Sniper] PumpPortal mint queue full; secondary subscription skipped")
+                                            log.warning("[Sniper] PumpPortal mint queue full; paid secondary subscription skipped")
                                     now_ms = int(time.time() * 1000)
                                     pending_mints = {item[0] for item in pending}
                                     if MINT_RE.fullmatch(mint) and mint not in active and mint not in pending_mints:
@@ -690,11 +703,15 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     FEED_STATE["lastError"] = type(exc).__name__
                                     log.warning("[Sniper] Could not store launch event (%s)", type(exc).__name__)
                                 mint = launch["mint"]
+                                try:
+                                    shrine_mint_queue.put_nowait((mint, int(time.time() * 1000)))
+                                except asyncio.QueueFull:
+                                    log.warning("[Sniper] Shrine mint queue full; free secondary subscription skipped")
                                 if pumpportal_api_key:
                                     try:
                                         pumpportal_mint_queue.put_nowait((mint, int(time.time() * 1000)))
                                     except asyncio.QueueFull:
-                                        log.warning("[Sniper] PumpPortal mint queue full; secondary subscription skipped")
+                                        log.warning("[Sniper] PumpPortal mint queue full; paid secondary subscription skipped")
                             elif message.type == WSMsgType.ERROR:
                                 raise ws.exception() or RuntimeError("PumpPortal websocket error")
                             elif message.type in (WSMsgType.CLOSED, WSMsgType.CLOSE):
@@ -750,6 +767,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         restored = await _restore_paper_monitoring_opt_in(supabase_request, launch_enabled)
         application["sniper_launch_feed_task"] = asyncio.create_task(worker())
         application["pumpdev_trade_feed_task"] = asyncio.create_task(pumpdev_trade_worker())
+        application["shrine_trade_feed_task"] = asyncio.create_task(
+            shrine_trade_worker(launch_enabled, shrine_mint_queue, supabase_request, FEED_STATE)
+        )
         application["helius_trade_feed_task"] = asyncio.create_task(
             helius_trade_worker(launch_enabled, helius_active_mints, helius_mints_changed, supabase_request, FEED_STATE)
         )
@@ -765,10 +785,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
     async def cleanup(application: web.Application) -> None:
         task = application.get("sniper_launch_feed_task")
         trade_task = application.get("pumpdev_trade_feed_task")
+        shrine_task = application.get("shrine_trade_feed_task")
         watchdog_task = application.get("sniper_paper_watchdog_task")
         helius_task = application.get("helius_trade_feed_task")
         price_task = application.get("sniper_paper_price_feed_task")
-        for running_task in (task, trade_task, helius_task, watchdog_task, price_task):
+        for running_task in (task, trade_task, shrine_task, helius_task, watchdog_task, price_task):
             if running_task:
                 running_task.cancel()
                 try:
@@ -847,6 +868,13 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "pumpportalTradeEventsSeen": int(FEED_STATE.get("pumpportalTradeEventsSeen", 0)),
                     "pumpportalTradePersistErrors": int(FEED_STATE.get("pumpportalTradePersistErrors", 0)),
                     "pumpportalTradeLastError": FEED_STATE.get("pumpportalTradeLastError"),
+                    "shrineTradeEnabled": bool(FEED_STATE.get("shrineTradeEnabled", True)),
+                    "shrineTradeConnected": bool(FEED_STATE.get("shrineTradeConnected", False)),
+                    "shrineTradeStatus": FEED_STATE.get("shrineTradeStatus", "waiting"),
+                    "shrineTradeSubscriptions": int(FEED_STATE.get("shrineTradeSubscriptions", 0)),
+                    "shrineTradeEventsSeen": int(FEED_STATE.get("shrineTradeEventsSeen", 0)),
+                    "shrineTradePersistErrors": int(FEED_STATE.get("shrineTradePersistErrors", 0)),
+                    "shrineTradeLastError": FEED_STATE.get("shrineTradeLastError"),
                 },
             })
         except Exception:
