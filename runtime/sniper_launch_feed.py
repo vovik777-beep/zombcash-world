@@ -75,6 +75,19 @@ async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asy
     return False
 
 
+def _pumpdev_safe_subscription_limit(api_key_present: bool, status=None, tier=None) -> int:
+    """Stay below the effective PumpDev tier even when a configured key is rejected."""
+    if not api_key_present:
+        return 4
+    effective_tier = str(tier or "").strip().lower()
+    if effective_tier in {"free", "starter", "pro", "whale", "custom"}:
+        return 20
+    if str(status or "").strip().lower() == "ok" and not effective_tier:
+        # PumpDev confirms that the supplied key was applied; remain 5 below its free cap.
+        return 20
+    return 4
+
+
 def _safe_number(value):
     if value in (None, ""):
         return None
@@ -233,6 +246,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 pending = []
                 subscribed_new_tokens = False
                 authenticated = not bool(api_key)
+                subscription_limit = 4
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
                     async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=30, receive_timeout=600, max_msg_size=1_000_000) as ws:
                         active_pumpdev_ws = ws
@@ -261,8 +275,14 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         FEED_STATE["pumpdevStatus"] = "auth_error"
                                         raise RuntimeError("PumpDev auth error")
                                     authenticated = status in {"ok", "free"}
+                                    tier = str(event.get("tier") or "").strip().lower()
+                                    subscription_limit = _pumpdev_safe_subscription_limit(bool(api_key), status, tier)
                                     FEED_STATE.update({"pumpdevEnabled": True, "pumpdevConnected": authenticated,
                                         "pumpdevStatus": "connected" if status == "ok" else "connected_free"})
+                                    log.info(
+                                        "[Sniper] PumpDev auth resolved status=%s tier=%s safe_subscription_limit=%s",
+                                        status or "missing", tier or "unspecified", subscription_limit,
+                                    )
                                     if not subscribed_new_tokens:
                                         await ws.send_json({"method": "subscribeNewToken"})
                                         subscribed_new_tokens = True
@@ -335,7 +355,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     for old_mint in expired:
                                         await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old_mint]})
                                         active.pop(old_mint, None)
-                                    max_subs = 20 if api_key else 4
+                                    max_subs = subscription_limit
                                     while pending and len(active) < max_subs:
                                         next_mint, queued_at = pending.pop(0)
                                         if now_ms - queued_at >= 60_000:
