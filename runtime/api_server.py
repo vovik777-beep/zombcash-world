@@ -2463,6 +2463,29 @@ async def sniper_trade_latest(request):
         return web.json_response({"error": "Could not load latest bonding-curve trade."}, status=502)
 
 
+
+
+async def _sniper_live_engine_status():
+    from sniper_execution import live_execution_enabled, live_execution_ready
+    code_ready = bool(live_execution_ready())
+    global_enabled = bool(live_execution_enabled())
+    database_ready = False
+    checks = {}
+    try:
+        health = await _supabase_request("POST", "rpc/sniper_live_engine_health", payload={})
+        if isinstance(health, dict):
+            database_ready = health.get("ready") is True
+            checks = health.get("checks") if isinstance(health.get("checks"), dict) else {}
+    except Exception as exc:
+        checks = {"databaseHealthError": type(exc).__name__}
+    return {
+        "codeReady": code_ready,
+        "databaseReady": database_ready,
+        "globalEnabled": global_enabled,
+        "available": code_ready and database_ready and global_enabled,
+        "checks": checks,
+    }
+
 async def sniper_settings_update(request):
     if request.headers.get("Origin", "") != ALLOWED_ORIGIN:
         return web.json_response({"error": "Invalid website origin"}, status=403)
@@ -2480,17 +2503,25 @@ async def sniper_settings_update(request):
     if mode not in {"paper", "live"}:
         return web.json_response({"error": "Mode must be paper or live."}, status=400)
     confirmation = str(payload.get("confirmation") or "")
+    live_status = None
     if mode == "live" and payload["enabled"]:
-        from sniper_execution import live_execution_ready
-        if not live_execution_ready():
-            return web.json_response({
-                "error": "Live order lifecycle is not ready yet. Paper mode remains available; no real trade can be armed.",
-                "liveExecutionAvailable": False,
-            }, status=503)
         if confirmation != "ENABLE LIVE TRADING":
             return web.json_response({
                 "error": "Type ENABLE LIVE TRADING to explicitly arm real-money trading."
             }, status=400)
+        live_status = await _sniper_live_engine_status()
+        if not live_status["available"]:
+            if not live_status["codeReady"]:
+                message = "Live execution RPC configuration is incomplete."
+            elif not live_status["databaseReady"]:
+                message = "Live engine database migrations are incomplete or unhealthy."
+            else:
+                message = "The global Live execution switch is disabled. No real trades can be sent."
+            return web.json_response({
+                "error": message,
+                "liveExecutionAvailable": False,
+                "liveExecutionStatus": live_status,
+            }, status=503)
         wallet = await _supabase_request(
             "POST", "rpc/sniper_wallet_get",
             payload={"p_telegram_id": int(telegram_id)},
@@ -2545,6 +2576,8 @@ async def sniper_settings_update(request):
             },
         )
         result = result if isinstance(result, dict) else {}
+        if live_status is None:
+            live_status = await _sniper_live_engine_status()
         feed_setter = request.app.get("sniper_launch_feed_set_enabled")
         if callable(feed_setter):
             await feed_setter(bool(payload["enabled"]))
@@ -2568,7 +2601,8 @@ async def sniper_settings_update(request):
                 "paperFeeBps": int(result.get("paperFeeBps") if result.get("paperFeeBps") is not None else 100),
                 "paperNetworkFeeSol": float(result.get("paperNetworkFeeSol") if result.get("paperNetworkFeeSol") is not None else 0.00005),
                 "paperEngine": "server",
-                "liveExecutionAvailable": False,
+                "liveExecutionAvailable": bool(live_status["available"]),
+                "liveExecutionStatus": live_status,
             },
         })
     except Exception:
@@ -2592,6 +2626,7 @@ async def sniper_wallet_info(request):
             payload={"p_telegram_id": int(telegram_id)},
         )
         row = row if isinstance(row, dict) else {}
+        live_status = await _sniper_live_engine_status()
         return web.json_response({
             "ok": True,
             "wallet": wallet if isinstance(wallet, dict) and wallet.get("publicKey") else None,
@@ -2615,7 +2650,8 @@ async def sniper_wallet_info(request):
                 "maxSlippageBps": int(row.get("max_slippage_bps", 300) or 300),
                 "buyWindowSeconds": int(row.get("buy_window_seconds", 60) or 60),
                 "paperEngine": "server",
-                "liveExecutionAvailable": False,
+                "liveExecutionAvailable": bool(live_status["available"]),
+                "liveExecutionStatus": live_status,
             },
         })
     except Exception:

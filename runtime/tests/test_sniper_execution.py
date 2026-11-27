@@ -1,4 +1,6 @@
+import os
 import unittest
+from unittest.mock import patch
 
 from sniper_execution import (
     LiveExecutionDisabled,
@@ -61,9 +63,21 @@ class SniperExecutionTests(unittest.TestCase):
         self.assertIn('os.getenv("HELIUS_RPC_URL"', source)
         self.assertNotIn('os.getenv("SOLANA_RPC_URL"', source)
 
-    def test_live_mode_is_locked_until_full_order_lifecycle_is_ready(self):
-        self.assertFalse(live_execution_enabled())
-        self.assertFalse(live_execution_ready())
+    def test_code_readiness_is_separate_from_global_live_kill_switch(self):
+        with patch.dict(os.environ, {
+            "HELIUS_RPC_URL": "https://rpc.example.invalid",
+            "PUMPPORTAL_TRADE_LOCAL_URL": "https://trade.example.invalid",
+            "SNIPER_LIVE_TRADING_ENABLED": "false",
+        }, clear=True):
+            self.assertTrue(live_execution_ready())
+            self.assertFalse(live_execution_enabled())
+
+    def test_code_readiness_requires_an_https_execution_rpc(self):
+        with patch.dict(os.environ, {
+            "HELIUS_RPC_URL": "",
+            "PUMPPORTAL_TRADE_LOCAL_URL": "https://trade.example.invalid",
+        }, clear=True):
+            self.assertFalse(live_execution_ready())
 
 
 if __name__ == "__main__":
