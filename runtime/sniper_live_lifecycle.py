@@ -164,8 +164,8 @@ async def reconcile_confirmed_live_orders(supabase_request, *, transaction_fetch
 async def live_fill_reconciliation_worker(supabase_request, state):
     while True:
         try:
-            unknown = await reconcile_unknown_live_orders(supabase_request, limit=5)
-            confirmed_result = await reconcile_confirmed_live_orders(supabase_request, limit=5)
+            unknown = await reconcile_unknown_live_orders(supabase_request, limit=2)
+            confirmed_result = await reconcile_confirmed_live_orders(supabase_request, limit=2)
             result = {
                 'unknownChecked': unknown['checked'], 'unknownConfirmed': unknown['confirmed'],
                 'unknownFailed': unknown['failed'], 'unknownPending': unknown['pending'],
@@ -185,7 +185,7 @@ async def live_fill_reconciliation_worker(supabase_request, state):
             state['liveFillReconcilerStatus'] = 'error'
             state['liveFillReconcilerLastError'] = type(exc).__name__
             log.warning('[Sniper] Live fill reconciler failed (%s)', type(exc).__name__)
-        await asyncio.sleep(15)
+        await asyncio.sleep(30)
 
 async def submit_live_order(
     *,
