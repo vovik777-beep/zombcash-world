@@ -73,10 +73,18 @@ class HeliusStandardWsTests(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event["trader"], "TraderWallet")
 
-    def test_skips_new_token_accounts_and_failed_transactions(self):
+    def test_adjusts_for_rent_when_buy_creates_token_account(self):
         tx = self._transaction("buy")
+        tx["meta"]["preBalances"] = [2_000_000_000, 0]
+        tx["meta"]["postBalances"] = [1_897_955_720, 2_039_280]
         tx["meta"]["preTokenBalances"] = []
-        self.assertIsNone(_normalize_helius_trade_event(tx, MINT))
+        tx["meta"]["postTokenBalances"][0]["accountIndex"] = 1
+        event = _normalize_helius_trade_event(tx, MINT)
+        self.assertIsNotNone(event)
+        self.assertEqual(event["side"], "buy")
+        self.assertAlmostEqual(event["solAmount"], 0.1)
+
+    def test_skips_failed_transactions(self):
         failed = self._transaction("buy")
         failed["meta"]["err"] = {"InstructionError": [1, "Custom"]}
         self.assertIsNone(_normalize_helius_trade_event(failed, MINT))
