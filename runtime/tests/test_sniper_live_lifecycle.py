@@ -20,9 +20,9 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 return {"enabled": True, "mode": "live", "live_armed": True, "max_slippage_bps": 300}
             if path == "rpc/sniper_live_order_prepare":
                 return {"orderId": "22222222-2222-4222-8222-222222222222", "status": prepared_status}
-            if path == "rpc/sniper_wallet_get":
+            if path == "rpc/sniper_live_order_wallet_get":
                 return {"publicKey": WALLET, "status": "active"}
-            if path == "rpc/sniper_wallet_secret":
+            if path == "rpc/sniper_live_order_wallet_secret":
                 return SECRET
             if path == "rpc/sniper_live_order_transition":
                 return {
@@ -56,7 +56,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(result["status"], "broadcasting")
         self.assertTrue(result["reused"])
-        self.assertFalse(any(path == "rpc/sniper_wallet_secret" for path, _ in calls))
+        self.assertFalse(any(path == "rpc/sniper_live_order_wallet_secret" for path, _ in calls))
 
     async def test_confirmed_execution_uses_broadcasting_lock_and_two_phase_confirmation(self):
         request, calls = self.make_supabase()
