@@ -78,7 +78,7 @@ def _event_time_ms(payload):
     return event_ms
 
 
-def _normalize_launch_event(payload):
+def _normalize_launch_event(payload, source="pumpportal"):
     if not isinstance(payload, dict):
         return None
     event_type = str(payload.get("txType") or payload.get("type") or "").strip().lower()
@@ -89,6 +89,7 @@ def _normalize_launch_event(payload):
         return None
     return {
         "mint": mint,
+        "source": str(source or "pumpportal")[:32],
         "signature": str(payload.get("signature") or "")[:128] or None,
         "name": str(payload.get("name") or "")[:96],
         "symbol": str(payload.get("symbol") or "TOKEN")[:24],
@@ -255,7 +256,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                 if not authenticated:
                                     continue
                                 if event.get("txType") == "create":
-                                    launch = _normalize_launch_event(event)
+                                    launch = _normalize_launch_event(event, source="pumpdev")
                                     mint = str(event.get("mint") or "").strip()
                                     if launch:
                                         try:
@@ -360,7 +361,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     FEED_STATE["lastError"] = "PUMPPORTAL_SUBSCRIPTION_ERROR"
                                     log.warning("[Sniper] PumpPortal launch subscription error")
                                     continue
-                                launch = _normalize_launch_event(payload)
+                                launch = _normalize_launch_event(payload, source="pumpportal")
                                 if not launch:
                                     continue
                                 try:
