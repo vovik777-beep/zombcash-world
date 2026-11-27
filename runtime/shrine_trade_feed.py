@@ -97,7 +97,7 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                     async def persist_trade(payload, resolved_quote=None):
                         normalized = normalize_shrine_trade(payload, quote_mint=resolved_quote)
                         if not normalized:
-                            return False
+                            return None
                         try:
                             await supabase_request("POST", "rpc/sniper_trade_upsert", payload={"p_event": normalized})
                             feed_state["tradesReceived"] = int(feed_state.get("tradesReceived", 0)) + 1
@@ -112,27 +112,38 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                             return False
 
                     async def resolve_quote_mint(mint):
-                        async with metadata_lock:
-                            wait = 1.05 - (time.monotonic() - last_metadata_request[0])
-                            if wait > 0:
-                                await asyncio.sleep(wait)
-                            last_metadata_request[0] = time.monotonic()
-                            async with session.get(
-                                "https://sol.shrine.trade/metadata",
-                                params={"mint": mint},
-                                timeout=ClientTimeout(total=10),
-                            ) as response:
-                                if response.status != 200:
-                                    raise RuntimeError(f"shrine_metadata_http_{response.status}")
-                                metadata = await response.json()
-                        quote = str(metadata.get("quote") or (metadata.get("pumpfun") or {}).get("quote_mint") or "").strip()
-                        if not quote:
-                            raise RuntimeError("shrine_metadata_quote_missing")
-                        quote_mints[mint] = quote
-                        queued = pending_trades.pop(mint, [])
-                        for pending in queued:
-                            await persist_trade(pending, quote)
-                        log.info("[Sniper] Shrine quote resolved mint=%s quote=%s pending=%s", mint, quote, len(queued))
+                        try:
+                            async with metadata_lock:
+                                wait = 1.05 - (time.monotonic() - last_metadata_request[0])
+                                if wait > 0:
+                                    await asyncio.sleep(wait)
+                                last_metadata_request[0] = time.monotonic()
+                                async with session.get(
+                                    "https://sol.shrine.trade/metadata",
+                                    params={"mint": mint},
+                                    timeout=ClientTimeout(total=10),
+                                ) as response:
+                                    if response.status != 200:
+                                        raise RuntimeError(f"shrine_metadata_http_{response.status}")
+                                    metadata = await response.json()
+                            quote = str(metadata.get("quote") or (metadata.get("pumpfun") or {}).get("quote_mint") or "").strip()
+                            if not quote:
+                                raise RuntimeError("shrine_metadata_quote_missing")
+                            quote_mints[mint] = quote
+                            queued = pending_trades.pop(mint, [])
+                            for pending in queued:
+                                result = await persist_trade(pending, quote)
+                                if result is None:
+                                    feed_state["shrineTradeInvalidEvents"] = int(feed_state.get("shrineTradeInvalidEvents", 0)) + 1
+                                    feed_state["shrineTradeLastInvalidReason"] = "metadata_quote_not_supported"
+                            log.info("[Sniper] Shrine quote resolved mint=%s quote=%s pending=%s", mint, quote, len(queued))
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            feed_state["shrineTradeLastError"] = type(exc).__name__
+                            feed_state["shrineTradeLastInvalidReason"] = "metadata_quote_lookup_failed"
+                            pending_trades.pop(mint, None)
+                            log.warning("[Sniper] Shrine quote lookup failed mint=%s error=%s", mint, type(exc).__name__)
 
                     async def subscribe_dispatcher():
                         while launch_enabled.is_set() and not ws.closed:
@@ -165,8 +176,6 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                             feed_state["shrineTradeLastSubscriptionAt"] = int(time.time() * 1000)
                             feed_state["shrineTradeLastSubscriptionMint"] = mint
                             log.info("[Sniper] Shrine trade subscription sent mint=%s active=%s", mint, len(active))
-                            if mint not in quote_mints and not any(not task.done() for task in metadata_tasks):
-                                pass
                             if mint not in quote_mints:
                                 task = asyncio.create_task(resolve_quote_mint(mint))
                                 metadata_tasks.add(task)
@@ -217,7 +226,8 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 if len(pending) < 20:
                                     pending.append(payload)
                                 continue
-                            if not await persist_trade(payload, quote_value):
+                            persist_result = await persist_trade(payload, quote_value)
+                            if persist_result is None:
                                 feed_state["shrineTradeInvalidEvents"] = int(feed_state.get("shrineTradeInvalidEvents", 0)) + 1
                                 context = {"payload_type": type(payload).__name__}
                                 if not isinstance(payload, dict):
@@ -250,6 +260,8 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 feed_state["shrineTradeLastInvalidReason"] = reason
                                 feed_state["shrineTradeLastInvalidContext"] = context if isinstance(payload, dict) else {"payload_type": type(payload).__name__}
                                 log.info("[Sniper] Shrine trade event rejected reason=%s context=%s", reason, feed_state["shrineTradeLastInvalidContext"])
+                                continue
+                            if persist_result is False:
                                 continue
 
                         elif message.type in (WSMsgType.CLOSED, WSMsgType.CLOSE, WSMsgType.ERROR):
