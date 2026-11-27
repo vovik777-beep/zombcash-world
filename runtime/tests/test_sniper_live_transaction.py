@@ -61,6 +61,22 @@ class LiveTransactionFillTests(unittest.TestCase):
         self.assertAlmostEqual(float(fill["solAmount"]), 1.0)
         self.assertAlmostEqual(float(fill["priceSol"]), 0.001)
 
+    def test_buy_fill_corrects_wrapped_sol_account_rent(self):
+        tx = make_tx(side="buy")
+        tx["transaction"]["message"]["accountKeys"].append("44444444444444444444444444444444")
+        tx["meta"]["preBalances"].append(0)
+        tx["meta"]["postBalances"][0] = 8_995_916_440
+        tx["meta"]["postBalances"].append(1_002_039_280)
+        tx["meta"]["postTokenBalances"].append({
+            "accountIndex": 2,
+            "mint": "So11111111111111111111111111111111111111112",
+            "owner": WALLET,
+            "uiTokenAmount": {"amount": "1000000000", "decimals": 9, "uiAmountString": "1"},
+        })
+        fill = extract_live_fill(tx, wallet_public_key=WALLET, mint=MINT, side="buy")
+        self.assertIsNotNone(fill)
+        self.assertAlmostEqual(float(fill["solAmount"]), 1.0)
+
     def test_rejects_failed_transaction(self):
         tx = make_tx()
         tx["meta"]["err"] = {"InstructionError": [0, "Custom"]}
