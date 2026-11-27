@@ -46,6 +46,8 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 return [{"order_id": "22222222-2222-4222-8222-222222222222", "signature": "sig"}]
             if path == "rpc/sniper_live_order_transition":
                 return {"status": payload["p_status"], "signature": payload["p_signature"]}
+            if path == "rpc/sniper_live_order_unknown_reconciliation_touch":
+                return None
             raise AssertionError(path)
         async def status_fetcher(signature):
             self.assertEqual(signature, "sig")
@@ -82,7 +84,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             return {"err": None, "confirmationStatus": "processed", "slot": 321}
         result = await reconcile_unknown_live_orders(request, signature_status_fetcher=status_fetcher)
         self.assertEqual(result["pending"], 1)
-        self.assertEqual(calls, ["rpc/sniper_live_unknown_orders"])
+        self.assertEqual(calls, ["rpc/sniper_live_unknown_orders", "rpc/sniper_live_order_unknown_reconciliation_touch"])
 
     async def test_reconciler_applies_confirmed_fill_once(self):
         calls = []
@@ -94,6 +96,10 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
                 return {"publicKey": WALLET, "status": "inactive", "custodyMode": "managed"}
             if path == "rpc/sniper_live_position_apply_fill":
                 return {"positionId": "44444444-4444-4444-8444-444444444444", "status": "open"}
+            if path == "rpc/sniper_live_order_fill_reconciliation_touch":
+                return None
+            if path == "rpc/sniper_live_order_unknown_reconciliation_touch":
+                return None
             raise AssertionError(path)
         tx = {
             "slot": 123, "blockTime": 1788976012,
