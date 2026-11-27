@@ -226,15 +226,18 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                 event_type = str(event.get("type") or "").lower()
                                 if event_type == "subscribed":
                                     FEED_STATE["pumpdevAckCount"] = int(FEED_STATE.get("pumpdevAckCount", 0)) + 1
+                                    ack_keys = event.get("keys") if isinstance(event.get("keys"), list) else None
+                                    accepted = event.get("accepted") if isinstance(event.get("accepted"), (int, list, dict, bool)) else (len(ack_keys) if ack_keys is not None else None)
                                     ack = {
                                         "method": str(event.get("method") or "")[:64],
-                                        "accepted": event.get("accepted") if isinstance(event.get("accepted"), (int, list, dict, bool)) else None,
+                                        "accepted": accepted,
+                                        "keys": [str(key)[:64] for key in ack_keys[:25]] if ack_keys is not None else None,
                                         "dropped": event.get("dropped") if isinstance(event.get("dropped"), (int, list, dict, bool)) else None,
                                         "at": int(time.time() * 1000),
                                     }
                                     FEED_STATE["pumpdevLastAck"] = ack
-                                    log.info("[Sniper] PumpDev subscription ack method=%s accepted=%s dropped=%s",
-                                             ack["method"], str(ack["accepted"])[:120], str(ack["dropped"])[:120])
+                                    log.info("[Sniper] PumpDev subscription ack method=%s accepted=%s keys=%s dropped=%s",
+                                             ack["method"], str(ack["accepted"])[:120], str(ack["keys"])[:240], str(ack["dropped"])[:120])
                                     continue
                                 if event_type in {"notice", "error"}:
                                     FEED_STATE["pumpdevNoticeCount"] = int(FEED_STATE.get("pumpdevNoticeCount", 0)) + 1
@@ -276,6 +279,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         active.append(mint)
                                         await ws.send_json({"method": "subscribeTokenTrade", "keys": [mint]})
                                         FEED_STATE["pumpdevSubscribedMints"] = len(active)
+                                    continue
+                                tx_type = str(event.get("txType") or "").lower()
+                                if tx_type in {"complete", "create_pool", "migration", "migrate"}:
+                                    log.info("[Sniper] PumpDev lifecycle event ignored for trade storage txType=%s mint=%s",
+                                             tx_type, str(event.get("mint") or "")[:64])
                                     continue
                                 FEED_STATE["pumpdevTradeEventsSeen"] = int(FEED_STATE.get("pumpdevTradeEventsSeen", 0)) + 1
                                 normalized = _normalize_pumpdev_trade_event(event)
