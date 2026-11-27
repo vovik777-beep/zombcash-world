@@ -4,12 +4,14 @@ import asyncio
 import json
 import logging
 import math
+import re
 import time
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType
 
 log = logging.getLogger("zombcash.sniper.shrine")
 SOL_MINT = "So11111111111111111111111111111111111111112"
+MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 
 
 def normalize_shrine_trade(payload):
@@ -19,7 +21,7 @@ def normalize_shrine_trade(payload):
     mint = str(payload.get("mint") or "").strip()
     signature = str(payload.get("signature") or "").strip()
     quote = str(payload.get("quote") or payload.get("quoteMint") or "")
-    if len(mint) < 32 or len(mint) > 44 or not signature:
+    if not MINT_RE.fullmatch(mint) or not signature:
         return None
     if quote != SOL_MINT:
         return None
