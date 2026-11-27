@@ -126,7 +126,13 @@ async def submit_live_order(
         "rpc/sniper_live_order_wallet_get",
         payload={"p_order_id": order_id},
     )
-    if not isinstance(wallet, dict) or not wallet.get("publicKey") or wallet.get("status") != "active":
+    if (
+        not isinstance(wallet, dict)
+        or not wallet.get("publicKey")
+        or wallet.get("status") != "active"
+        or wallet.get("custodyMode") != "managed"
+        or (prepared.get("walletId") and wallet.get("walletId") != prepared.get("walletId"))
+    ):
         await _transition(supabase_request, order_id, "failed", error_code="active_managed_wallet_required")
         return {"orderId": order_id, "status": "failed", "errorCode": "active_managed_wallet_required"}
 
