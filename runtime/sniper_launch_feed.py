@@ -183,7 +183,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
     async def pumpdev_trade_worker() -> None:
         """Discover new Pump.fun tokens only while Auto Sniper is enabled; then capture their trades."""
         nonlocal active_pumpdev_ws
-        backoff = 5
+        backoff = 30
         while True:
             await launch_enabled.wait()
             api_key = os.getenv("PUMPDEV_API_KEY", "").strip()
@@ -196,7 +196,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 subscribed_new_tokens = False
                 authenticated = not bool(api_key)
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
-                    async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=20, receive_timeout=600, max_msg_size=1_000_000) as ws:
+                    async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=30, receive_timeout=600, max_msg_size=1_000_000) as ws:
                         active_pumpdev_ws = ws
                         FEED_STATE.update({"pumpdevEnabled": True, "pumpdevConnected": True,
                             "pumpdevStatus": "connected_anonymous" if not api_key else "authenticating",
@@ -297,7 +297,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     for old_mint in expired:
                                         await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old_mint]})
                                         active.pop(old_mint, None)
-                                    max_subs = 25 if api_key else 5
+                                    max_subs = 20 if api_key else 4
                                     while pending and len(active) < max_subs:
                                         next_mint, queued_at = pending.pop(0)
                                         if now_ms - queued_at >= 60_000:
@@ -400,7 +400,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 if launch_enabled.is_set():
                     log.warning("[Sniper] PumpDev disconnected (%s); retry in %ss", type(exc).__name__, backoff)
                     await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 120)
+                    backoff = min(backoff * 2, 300)
             finally:
                 active_pumpdev_ws = None
                 FEED_STATE.update({"pumpdevConnected": False, "pumpdevSubscribedMints": 0,
@@ -411,7 +411,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
     async def worker() -> None:
         """Free PumpPortal launch discovery only; connect only while the website switch is enabled."""
         nonlocal active_launch_ws
-        backoff = 60
+        backoff = 120
         while True:
             await launch_enabled.wait()
             try:
@@ -420,7 +420,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                 async with ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(
                         uri,
-                        heartbeat=20,
+                        heartbeat=30,
                         receive_timeout=600,
                         max_msg_size=1_000_000,
                     ) as ws:
@@ -441,7 +441,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                         log.info("[Sniper] PumpPortal launch-only websocket connected (newToken + migration)")
                         await ws.send_json({"method": "subscribeNewToken"})
                         await ws.send_json({"method": "subscribeMigration"})
-                        backoff = 5
+                        backoff = 120
                         async for message in ws:
                             if message.type == WSMsgType.TEXT:
                                 try:
@@ -478,7 +478,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     FEED_STATE["lastError"] = type(exc).__name__
                     log.warning("[Sniper] PumpPortal launch stream disconnected (%s: %s); retrying in %ss", type(exc).__name__, str(exc)[:160], backoff)
                     await asyncio.sleep(backoff)
-                    backoff = min(backoff * 2, 120)
+                    backoff = min(backoff * 2, 600)
             finally:
                 active_launch_ws = None
                 FEED_STATE["connected"] = False
