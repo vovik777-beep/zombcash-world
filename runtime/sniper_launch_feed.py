@@ -50,6 +50,24 @@ FEED_STATE = {
 }
 
 
+async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asyncio.Event) -> bool:
+    """Restore the persisted Paper-mode opt-in after an API process restart."""
+    try:
+        enabled = await supabase_request(
+            "POST", "rpc/sniper_any_paper_monitoring_enabled", payload={}
+        )
+    except Exception as exc:
+        log.warning(
+            "[Sniper] Could not restore persisted monitoring preference (%s); keeping feeds stopped",
+            type(exc).__name__,
+        )
+        return False
+    if enabled is True:
+        launch_enabled.set()
+        return True
+    return False
+
+
 def _safe_number(value):
     if value in (None, ""):
         return None
@@ -509,10 +527,14 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
 
     async def startup(application: web.Application) -> None:
         application["sniper_launch_feed_set_enabled"] = set_enabled
+        restored = await _restore_paper_monitoring_opt_in(supabase_request, launch_enabled)
         application["sniper_launch_feed_task"] = asyncio.create_task(worker())
         application["pumpdev_trade_feed_task"] = asyncio.create_task(pumpdev_trade_worker())
         application["sniper_paper_watchdog_task"] = asyncio.create_task(paper_position_watchdog())
-        log.info("[Sniper] Launch monitoring is OFF until enabled by the website button; Paper position watchdog runs independently")
+        if restored:
+            log.info("[Sniper] Restored launch monitoring from persisted Paper-mode user settings")
+        else:
+            log.info("[Sniper] Launch monitoring remains OFF (no enabled Paper-mode user); Paper watchdog runs independently")
 
     async def cleanup(application: web.Application) -> None:
         task = application.get("sniper_launch_feed_task")
