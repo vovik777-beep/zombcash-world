@@ -18,7 +18,7 @@ $old$;
   v_new := $new$
     if not v_user.enabled then continue; end if;
 $new$;
-  IF pg_catalog.position(v_old IN v_definition) = 0 THEN
+  IF pg_catalog.strpos(v_definition, v_old) = 0 THEN
     RAISE EXCEPTION 'Paper entry migration: enabled/price guard not found';
   END IF;
   v_definition := pg_catalog.replace(v_definition, v_old, v_new);
@@ -52,7 +52,7 @@ $old$;
        or v_now>v_launch.event_at+pg_catalog.make_interval(secs=>v_user.buy_window_seconds)
        then continue; end if;
 $old$;
-  IF pg_catalog.position(v_old IN v_definition) = 0 THEN
+  IF pg_catalog.strpos(v_definition, v_old) = 0 THEN
     RAISE EXCEPTION 'Paper entry migration: first-buy selector not found';
   END IF;
   v_definition := pg_catalog.replace(v_definition, v_old, v_new);
@@ -63,7 +63,7 @@ $old$;
   v_new := $new$
       v_buy,v_entry.price_sol,v_entry.price_sol,v_quantity,0,0,'open',null,v_now,v_now);
 $new$;
-  IF pg_catalog.position(v_old IN v_definition) = 0 THEN
+  IF pg_catalog.strpos(v_definition, v_old) = 0 THEN
     RAISE EXCEPTION 'Paper entry migration: position insert values not found';
   END IF;
   v_definition := pg_catalog.replace(v_definition, v_old, v_new);
@@ -80,7 +80,7 @@ $old$;
         'entryPricingPolicy','latest_fresh_trade_when_buy_threshold_met',
         'tradeCount',v_stats.trade_count,'buyCount',v_stats.buy_count,'uniqueBuyers',v_stats.unique_buyers,
 $new$;
-  IF pg_catalog.position(v_old IN v_definition) = 0 THEN
+  IF pg_catalog.strpos(v_definition, v_old) = 0 THEN
     RAISE EXCEPTION 'Paper entry migration: Paper buy event payload not found';
   END IF;
   v_definition := pg_catalog.replace(v_definition, v_old, v_new);
@@ -97,9 +97,9 @@ BEGIN
     'public.sniper_paper_engine_process(text)'::pg_catalog.regprocedure
   ) INTO v_definition;
 
-  IF pg_catalog.position('latest_fresh_trade_when_buy_threshold_met' IN v_definition) = 0
-     OR pg_catalog.position('t.received_at>=v_now-interval ''30 seconds''' IN v_definition) = 0
-     OR pg_catalog.position('order by t.event_at desc,t.received_at desc' IN v_definition) = 0 THEN
+  IF pg_catalog.strpos(v_definition, 'latest_fresh_trade_when_buy_threshold_met') = 0
+     OR pg_catalog.strpos(v_definition, 't.received_at>=v_now-interval ''30 seconds''') = 0
+     OR pg_catalog.strpos(v_definition, 'order by t.event_at desc,t.received_at desc') = 0 THEN
     RAISE EXCEPTION 'Paper entry migration verification failed';
   END IF;
 END;
