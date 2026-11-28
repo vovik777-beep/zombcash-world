@@ -154,7 +154,7 @@ def build_reply_to_comment(post_title, comment_content):
     body = re.sub(r"\s+", " ", str(comment_content or "")).strip()
     if len(body) < 3:
         return None
-    text = (title + " " + body).lower()
+    text = body.lower()
     if any(term in text for term in ("contract address", "mint address", "ca?", "what is the mint", "token address")):
         return (
             "For verification, the ZombieCash Solana mint is "
@@ -166,7 +166,7 @@ def build_reply_to_comment(post_title, comment_content):
             "We don't promise price performance or returns. Please verify the exact mint, current pool, "
             "liquidity and risks independently before making any decision."
         )
-    if any(term in text for term in ("website", "site", "where can", "telegram", "community", "join")):
+    if any(term in text for term in ("website", "site", "where can", "telegram", "community", "join", "what is zombcash", "what's zombcash", "what is zombiecash", "what's zombiecash")):
         return (
             "The ZombieCash project hub is https://zombcash.github.io/ and the community is at "
             "https://t.me/ZOMBCASH. Start with the project information and verify the token details "
@@ -187,7 +187,10 @@ def build_reply_to_comment(post_title, comment_content):
     words = re.findall(r"[a-z0-9][a-z0-9'-]*", body.lower())
     stop = {"the", "and", "for", "that", "this", "with", "you", "your", "are", "was", "have", "has", "what", "how", "why", "our", "but", "not"}
     anchor_words = [word for word in words if word not in stop][:7]
-    if len(anchor_words) < 3:
+    reply_intent = "?" in body or any(
+        term in text for term in ("suggest", "recommend", "could", "should", "would", "feedback", "bug", "issue", "confusing", "unclear", "missing", "need", "want", "how", "what", "where", "why", "when", "can", "does")
+    )
+    if len(anchor_words) < 5 or not reply_intent:
         return None
     anchor = " ".join(anchor_words)
     return (
