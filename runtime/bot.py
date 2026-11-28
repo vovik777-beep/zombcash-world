@@ -3414,19 +3414,54 @@ async def _auto_post_job_once(context):
                 bluesky_parts.pop()
                 bluesky_text = "\n\n".join(bluesky_parts)
             if not _bluesky_text_fits(bluesky_text):
-                # Do not let an overlong caption abort Bluesky delivery after Telegram succeeded.
-                caption = bluesky_parts[0]
-                bluesky_parts[0] = caption[:120].rstrip() + ("…" if len(caption) > 120 else "")
+                # Preserve the story/caption. Strip optional metadata before shortening any prose.
+                original_caption = bluesky_parts[0]
+                optional_parts = list(bluesky_parts[1:])
+                for optional in ("CA: " + ca if ca else None, "$ZOMBCASH | Solana meme community",
+                                 "https://zombcash.github.io/"):
+                    if optional and optional in optional_parts:
+                        optional_parts.remove(optional)
+                # Tags are expendable; remove them before the main caption.
+                optional_parts = [part for part in optional_parts if not part.startswith("#")]
+                bluesky_parts = [original_caption] + optional_parts
                 bluesky_text = "\n\n".join(bluesky_parts)
+
                 if not _bluesky_text_fits(bluesky_text):
-                    compact_caption = bluesky_parts[0][:80].rstrip()
-                    bluesky_parts = [compact_caption, "$ZOMBCASH", "#ZombieCash", "https://zombcash.github.io/"]
+                    # The caption itself is the priority. Keep a compact ticker footer only
+                    # when it fits, otherwise publish the complete caption alone.
+                    bluesky_parts = [original_caption, "$ZOMBCASH"]
                     bluesky_text = "\n\n".join(bluesky_parts)
-                    while not _bluesky_text_fits(bluesky_text) and len(compact_caption) > 20:
-                        compact_caption = compact_caption[:-10].rstrip() + "…"
-                        bluesky_parts[0] = compact_caption
-                        bluesky_text = "\n\n".join(bluesky_parts)
-                logging.warning("BLUESKY CAPTION SHORTENED: category=%s original_chars=%s", series, len(caption))
+                    if not _bluesky_text_fits(bluesky_text):
+                        bluesky_parts = [original_caption]
+                        bluesky_text = original_caption
+
+                if not _bluesky_text_fits(bluesky_text):
+                    # Only if the caption alone exceeds Bluesky's limit, shorten at a
+                    # word/sentence boundary. Never use the former arbitrary 120/80 chars.
+                    caption = original_caption
+                    sentence_candidates = re.split(r"(?<=[.!?])\\s+", caption)
+                    shortened = ""
+                    for candidate in sentence_candidates:
+                        trial = (shortened + " " + candidate).strip()
+                        if _bluesky_text_fits(trial):
+                            shortened = trial
+                        else:
+                            break
+                    if not shortened:
+                        words = caption.split()
+                        shortened = ""
+                        for word in words:
+                            trial = (shortened + " " + word).strip()
+                            if _bluesky_text_fits(trial + "…"):
+                                shortened = trial
+                            else:
+                                break
+                        if shortened and len(shortened) < len(caption):
+                            shortened = shortened.rstrip(" ,;:") + "…"
+                    bluesky_parts = [shortened or caption]
+                    bluesky_text = "\n\n".join(bluesky_parts)
+                logging.warning("BLUESKY CAPTION COMPACTED: category=%s original_chars=%s final_chars=%s",
+                                series, len(original_caption), len(bluesky_text))
             try:
                 bluesky_result = await asyncio.to_thread(
                     publish_bluesky_post, bluesky_text, image_payload,
