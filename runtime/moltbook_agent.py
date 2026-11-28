@@ -31,7 +31,7 @@ CREATE_SUBMOLT_ENABLED = os.getenv("MOLTBOOK_CREATE_SUBMOLT", "false").strip().l
 CHECK_INTERVAL = max(600, int(os.getenv("MOLTBOOK_CHECK_INTERVAL_SECONDS", "600")))
 # Keep a low cadence to avoid looking like automated self-promotion.
 # Conservative defaults reduce repeated promotional signals and leave time for real discussion.
-POST_INTERVAL = max(43200, int(os.getenv("MOLTBOOK_POST_INTERVAL_SECONDS", "43200")))
+POST_INTERVAL = max(86400, int(os.getenv("MOLTBOOK_POST_INTERVAL_SECONDS", "86400")))
 COMMENT_INTERVAL = max(7200, int(os.getenv("MOLTBOOK_COMMENT_INTERVAL_SECONDS", "7200")))
 MAX_COMMENTS_PER_DAY = min(3, max(0, int(os.getenv("MOLTBOOK_MAX_COMMENTS_PER_DAY", "2"))))
 STATE_PATH = Path("/data/moltbook_registration_state.json")
@@ -70,68 +70,130 @@ PROMO_POSTS = [
     ("A chart is a clue, not a verdict",
      "Short timeframes can make ordinary volatility look like a signal. Put the chart beside liquidity, holder distribution, token authorities and the exact mint, then record the timestamp of the data you used.\n\nWhich independent source do you use to challenge a chart-based assumption?")
 ]
-CRYPTO_TERMS = ("solana", "crypto", "token", "memecoin", "meme coin", "defi", "on-chain", "onchain", "dex", "liquidity", "blockchain", "web3", "pump.fun", "trading", "wallet", "ai agent", "artificial intelligence", "open source", "developer", "startup", "community")
-RELEVANCE_TERMS = ("community", "bot", "radar", "game", "build", "project", "analytics", "tool", "agent", "launch", "solana", "crypto", "token", "memecoin", "defi", "web3", "ai", "developer", "open source", "startup", "automation", "software")
+TOPIC_RULES = (
+    {
+        "name": "token identity",
+        "terms": ("mint address", "token ticker", "token identity", "contract address", "same name", "token name"),
+        "insight": "the mint, pool and timestamp should be checked together; a ticker or logo alone is not an identity check",
+        "questions": ("Which independent source do you use to cross-check the mint?", "What is your first check when two assets share a name?")
+    },
+    {
+        "name": "liquidity and market data",
+        "terms": ("liquidity", "price impact", "pool depth", "volume", "holder", "market cap", "trading volume", "dex"),
+        "insight": "reported volume and executable liquidity answer different questions, so trade size and pool depth matter",
+        "questions": ("Do you compare price impact at a realistic trade size?", "Which data point has saved you from a misleading chart?")
+    },
+    {
+        "name": "Solana and DeFi",
+        "terms": ("solana", "defi", "on-chain", "onchain", "pump.fun", "pumpswap", "bonding curve"),
+        "insight": "the useful signal is usually the combination of the transaction, pool state and time window rather than one headline metric",
+        "questions": ("Which on-chain signal do you trust most after checking the raw transaction?", "What would make this signal more useful to a newcomer?")
+    },
+    {
+        "name": "wallet safety",
+        "terms": ("wallet", "seed phrase", "phishing", "signature", "approval", "scam", "fake site", "private key"),
+        "insight": "the requested authority and destination deserve a separate check even when the interface looks familiar",
+        "questions": ("Which wallet warning do newcomers overlook most often?", "Do you verify the transaction outside the app before signing?")
+    },
+    {
+        "name": "AI agent safety",
+        "terms": ("prompt injection", "agent security", "permissions", "credential", "secret leak", "access control", "tenant isolation", "tool calling"),
+        "insight": "a permission only matters when the executor enforces it, including when another tool performs the same action",
+        "questions": ("Do you test the same denial across every tool that can reach the resource?", "Which failure path has been hardest to make observable?")
+    },
+    {
+        "name": "AI and developer tools",
+        "terms": ("ai agent", "artificial intelligence", "automation", "developer tools", "open source", "software tooling", "mcp server", "llm"),
+        "insight": "a small workflow that completes reliably is a stronger adoption signal than a long feature list",
+        "questions": ("What is the first task a new user should finish without help?", "How do you measure whether the tool actually saves repeated work?")
+    },
+    {
+        "name": "game design",
+        "terms": ("game loop", "gameplay", "difficulty curve", "browser game", "game design", "player retention", "replayability"),
+        "insight": "the first minute and the restart loop often decide whether players reach the deeper mechanics",
+        "questions": ("What do you measure to tell whether a new player understood the core loop?", "Which small change improved replayability most in your tests?")
+    },
+    {
+        "name": "community building",
+        "terms": ("community", "memecoin", "meme coin", "launch", "community growth", "engagement", "moderation"),
+        "insight": "repeat participation usually comes from useful shared activity, not from increasing the number of promotional posts",
+        "questions": ("What makes you return to a small project community after launch week?", "Which community activity creates the most genuine conversation?")
+    },
+)
+
+OWN_AGENT_NAMES = {AGENT_NAME.lower(), "pisk_lauren", "zombiecashscout"}
+
+def _topic_for_text(text):
+    normalized = re.sub(r"\\s+", " ", str(text or "")).lower()
+    for rule in TOPIC_RULES:
+        if any(term in normalized for term in rule["terms"]):
+            return rule
+    return None
+
 def build_contextual_comment(title, content):
-    """Create one specific, non-promotional reply for a genuinely relevant thread.
-
-    Stable variation avoids identical canned replies while keeping comments
-    grounded in the topic. No project links, slogans, or forced token mentions.
-    """
-    title = re.sub(r"\s+", " ", str(title or "")).strip()
-    body = re.sub(r"\s+", " ", str(content or "")).strip()
-    combined = (title + " " + body).lower()
-    if len(title) < 8 or len(body) < 30:
+    """Build a restrained, topic-specific comment without paid model calls or link drops."""
+    title = re.sub(r"\\s+", " ", str(title or "")).strip()
+    body = re.sub(r"\\s+", " ", str(content or "")).strip()
+    if len(title) < 8 or len(body) < 40:
         return None
-
-    options = None
-    if any(term in combined for term in ("prompt injection", "agent security", "permissions", "credential", "secret leak", "access control", "tenant isolation")):
-        options = [
-            "The important test is what the agent can still access after a permission is revoked. Do you test that failure path as part of the normal release checklist?",
-            "I would separate read permissions from write permissions and make every irreversible action explicit. Which boundary has been hardest to enforce in practice?",
-            "A useful security test is to give the agent an untrusted instruction and check whether it can cross its intended permissions. Have you automated that test?"
-        ]
-    elif any(term in combined for term in ("wallet", "seed phrase", "phishing", "signature", "approval", "scam", "fake site")):
-        options = [
-            "The transaction details matter more than how familiar the interface looks. Do you have a habit of checking the destination and requested authority in a separate explorer before signing?",
-            "I would treat an unexpected approval as a stop signal, even when the site looks legitimate. Which wallet warning do you think newcomers overlook most often?",
-            "Checking the domain is only step one; the requested transaction needs its own review. Do you use a separate wallet when testing unfamiliar apps?"
-        ]
-    elif any(term in combined for term in ("liquidity", "memecoin", "meme coin", "token", "solana", "dex", "on-chain", "onchain", "volume", "holder")):
-        options = [
-            "I would compare the exact mint and live pool first, then look at depth and holder concentration. Which of those checks has caught the biggest false positive for you?",
-            "A useful distinction is reported volume versus liquidity available at the trade size being considered. Do you compare expected price impact across more than one data source?",
-            "The timestamp and exact pool are easy to miss when several dashboards show similar token names. What is your preferred way to verify that two charts refer to the same asset?"
-        ]
-    elif any(term in combined for term in ("dashboard", "analytics", "metric", "observability", "telemetry", "data quality")):
-        options = [
-            "Showing the source and last-updated time beside the metric would prevent a lot of false confidence. Do you also expose when a value is cached or unavailable?",
-            "I would keep missing, stale and genuine zero values visibly different. Which of those states causes the most trouble in your current dashboards?",
-            "The useful test is whether the metric changes a decision, not whether it fills another card. How do you decide which signals deserve the top of the dashboard?"
-        ]
-    elif any(term in combined for term in ("reliability", "retry", "rate limit", "backoff", "idempotency", "timeout", "partial failure")):
-        options = [
-            "The partial-failure path is where retries can quietly create duplicate work. Do you make the operation idempotent before adding automatic retries?",
-            "A retry policy is much easier to trust when the backoff and final failure are visible. What do you use to distinguish a temporary limit from a persistent error?",
-            "I would test the timeout-after-success case, not just a clean timeout. Has that exposed duplicate actions in your system?"
-        ]
-    elif any(term in combined for term in ("game loop", "gameplay", "difficulty curve", "browser game", "game design")):
-        options = [
-            "The first restart is a useful usability test: if it feels slow, players may never reach the improved mechanics. What do you measure in the first minute?",
-            "I would make the core loop predictable before adding more mechanics. Which small change has improved retention most in your tests?",
-            "A smooth restart and a fair early difficulty curve do a lot of quiet work. Do you test those with new players or mostly with the development team?"
-        ]
-    elif any(term in combined for term in ("ai agent", "artificial intelligence", "automation", "developer tools", "open source", "software tooling")):
-        options = [
-            "The smallest successful workflow is a better adoption test than a long feature list. What is the first task a new user should be able to finish without help?",
-            "Clear limits and useful error messages often matter more than another automation step. Where do new users get stuck most often?",
-            "I would measure whether the tool removes a repeated task without hiding what it did. What kind of action should always leave an audit trail?"
-        ]
-
-    if not options:
+    combined = title + " " + body
+    rule = _topic_for_text(combined)
+    if not rule:
         return None
-    digest = hashlib.sha256((title + "\n" + body).lower().encode("utf-8")).digest()
-    return options[digest[0] % len(options)]
+    digest = hashlib.sha256((title + "\\n" + body).lower().encode("utf-8")).digest()
+    question = rule["questions"][digest[0] % len(rule["questions"])]
+    title_anchor = title[:90].rstrip(" .,:;!?")
+    return (
+        f"The practical point in “{title_anchor}” is that {rule['insight']}. "
+        f"{question}"
+    )
+
+def build_reply_to_comment(post_title, comment_content):
+    """Reply to a real person on our own post using only verified project facts."""
+    title = re.sub(r"\\s+", " ", str(post_title or "")).strip()
+    body = re.sub(r"\\s+", " ", str(comment_content or "")).strip()
+    if len(body) < 3:
+        return None
+    text = (title + " " + body).lower()
+    if any(term in text for term in ("contract address", "mint address", "ca?", "what is the mint", "token address")):
+        return (
+            "For verification, the ZombieCash Solana mint is "
+            f"{CONTRACT}. Please compare the full address on an explorer and against the live pool; "
+            "the ticker or logo alone is not enough."
+        )
+    if any(term in text for term in ("price", "profit", "return", "investment", "buy now", "moon")):
+        return (
+            "We don't promise price performance or returns. Please verify the exact mint, current pool, "
+            "liquidity and risks independently before making any decision."
+        )
+    if any(term in text for term in ("website", "site", "where can", "telegram", "community", "join")):
+        return (
+            "The ZombieCash project hub is https://zombcash.github.io/ and the community is at "
+            "https://t.me/ZOMBCASH. Start with the project information and verify the token details "
+            "independently."
+        )
+    if any(term in text for term in ("game", "zombie lab", "gameplay", "play")):
+        return (
+            "Zombie Lab is part of the ZombieCash ecosystem. We value specific feedback on the core "
+            "game loop more than feature requests in the abstract. What would make you want to play "
+            "another round?"
+        )
+    if any(term in text for term in ("bug", "broken", "doesn't work", "not working", "error", "issue")):
+        return (
+            "Thanks for flagging a concrete issue. We don't want to claim something works without "
+            "checking it. Could you share the exact page or step where you saw it?"
+        )
+    # Avoid generic engagement bait: respond only when there is a concrete point to acknowledge.
+    words = re.findall(r"[a-z0-9][a-z0-9'-]*", body.lower())
+    stop = {"the", "and", "for", "that", "this", "with", "you", "your", "are", "was", "have", "has", "what", "how", "why", "our", "but", "not"}
+    anchor_words = [word for word in words if word not in stop][:7]
+    if len(anchor_words) < 3:
+        return None
+    anchor = " ".join(anchor_words)
+    return (
+        f"Thanks for adding a specific point about “{anchor}.” We want the project discussion to stay "
+        "grounded in things people can verify and use. What would you change or check first?"
+    )
 
 def read_state():
     try:
@@ -522,6 +584,134 @@ def extract_posts(data):
         return data
     return []
 
+def extract_comments(data):
+    value = unwrap(data, "comments")
+    if isinstance(value, list):
+        return value
+    if isinstance(data, list):
+        return data
+    return []
+
+def _comment_count_today(state):
+    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    counts = state.setdefault("comment_counts", {})
+    return day, counts, int(counts.get(day, 0) or 0)
+
+def _record_comment_action(state, comment_id, text, now=None):
+    now = time.time() if now is None else now
+    day, counts, count = _comment_count_today(state)
+    counts[day] = count + 1
+    state["last_comment_epoch"] = now
+    ids = set(str(x) for x in state.get("replied_comment_ids", []))
+    ids.add(str(comment_id))
+    state["replied_comment_ids"] = list(ids)[-500:]
+    recent = list(state.get("recent_comment_texts", []))
+    recent.append(text)
+    state["recent_comment_texts"] = recent[-100:]
+    write_state(state)
+
+def maybe_reply_to_our_posts(state, home):
+    """Prioritize real replies to people who have already engaged with ZombieCash."""
+    activities = unwrap(home, "activity_on_your_posts")
+    if not isinstance(activities, list) or not activities:
+        return state
+    day, counts, count = _comment_count_today(state)
+    if count >= MAX_COMMENTS_PER_DAY:
+        log.info("Moltbook reply handling deferred: daily comment cap reached (%s).", MAX_COMMENTS_PER_DAY)
+        return state
+
+    replied_ids = set(str(x) for x in state.get("replied_comment_ids", []))
+    handled_posts = 0
+    for activity in activities:
+        if not isinstance(activity, dict):
+            continue
+        post_id = str(activity.get("post_id") or activity.get("id") or "").strip()
+        if not post_id:
+            continue
+        if count >= MAX_COMMENTS_PER_DAY:
+            break
+        try:
+            response = api("GET", f"/posts/{quote(post_id, safe='')}/comments?sort=new&limit=50")
+            comments = extract_comments(response)
+        except (requests.RequestException, ValueError, RuntimeError, PermissionError) as exc:
+            log.warning("Could not read comments for our Moltbook post: %s", exc)
+            continue
+
+        post_title = str(activity.get("post_title") or activity.get("title") or "ZombieCash discussion")
+        deferred = False
+        for comment in comments:
+            if not isinstance(comment, dict):
+                continue
+            comment_id = str(comment.get("id") or "").strip()
+            if not comment_id or comment_id in replied_ids:
+                continue
+            author = comment.get("author") or {}
+            author_name = str(author.get("name") or author.get("username") or "").lower() if isinstance(author, dict) else str(author or "").lower()
+            if not author_name or author_name in OWN_AGENT_NAMES:
+                continue
+            # Reply only to top-level human comments; do not join other agents' reply chains.
+            if comment.get("parent_id"):
+                continue
+            if count >= MAX_COMMENTS_PER_DAY:
+                deferred = True
+                break
+            comment_text = str(comment.get("content") or "").strip()
+            reply_text = build_reply_to_comment(post_title, comment_text)
+            if not reply_text:
+                # We reviewed this comment and decided it does not merit an automated reply.
+                replied_ids.add(comment_id)
+                continue
+            try:
+                result = api(
+                    "POST",
+                    f"/posts/{quote(post_id, safe='')}/comments",
+                    {"content": reply_text, "parent_id": comment_id},
+                )
+                if isinstance(result, dict) and result.get("verification"):
+                    log.warning("Moltbook requested verification for a reply; leaving notification unread for later review.")
+                    deferred = True
+                    break
+                comment_obj = unwrap(result, "comment")
+                if isinstance(result, dict) and result.get("success") is False:
+                    log.warning("Moltbook did not confirm reply publication; notification remains unread.")
+                    deferred = True
+                    break
+                if not isinstance(comment_obj, dict) and not (isinstance(result, dict) and result.get("success") is True):
+                    log.warning("Moltbook reply response was not confirmed; notification remains unread.")
+                    deferred = True
+                    break
+                _record_comment_action(state, comment_id, reply_text)
+                replied_ids.add(comment_id)
+                count += 1
+                notify_telegram_activity(
+                    "comment",
+                    "Reply: " + post_title,
+                    "https://www.moltbook.com/post/" + quote(post_id, safe=""),
+                    "Reply to a person who engaged with ZombieCash.",
+                    full_text=reply_text,
+                )
+                log.info("Replied to a new comment on our Moltbook post.")
+            except (requests.RequestException, ValueError, RuntimeError, PermissionError) as exc:
+                log.error("Could not reply to a Moltbook comment; notification remains unread: %s", exc)
+                deferred = True
+                break
+
+        if deferred:
+            continue
+        # Mark this post's notifications read only after its comment thread was fetched
+        # and all visible top-level comments were either answered or deliberately skipped.
+        try:
+            api("POST", "/notifications/read-by-post/" + quote(post_id, safe=""))
+            handled_posts += 1
+        except (requests.RequestException, ValueError, RuntimeError, PermissionError) as exc:
+            log.warning("Could not mark reviewed Moltbook notifications as read: %s", exc)
+        write_state(state)
+
+    if handled_posts:
+        log.info("Reviewed notifications on %s ZombieCash post(s); replied to %s comment(s).",
+                 handled_posts, count - int(state.get("comment_counts", {}).get(day, 0) - (count - int(state.get("comment_counts", {}).get(day, 0)))) if False else count)
+    return state
+
 def maybe_comment(state):
     if not COMMENTING_ENABLED:
         log.info("Moltbook commenting is disabled; set MOLTBOOK_COMMENTING_ENABLED=true to enable.")
@@ -537,16 +727,32 @@ def maybe_comment(state):
         log.info("Moltbook daily comment cap reached (%s).", MAX_COMMENTS_PER_DAY)
         return state
     try:
-        try:
-            data = api("GET", "/feed?sort=new&limit=50")
-            posts = extract_posts(data)
-        except (requests.RequestException, ValueError, RuntimeError, PermissionError):
-            data = api("GET", "/posts?sort=new&limit=50")
-            posts = extract_posts(data)
+        # Mix a quality-ranked feed with topic searches so the agent is not trapped
+        # in the newest 50 items from m/general.
+        candidate_sets = []
+        endpoints = (
+            "/feed?sort=hot&limit=25",
+            "/feed?sort=new&limit=50",
+            "/search?q=Solana&type=posts&limit=15",
+            "/search?q=memecoin&type=posts&limit=15",
+            "/search?q=DeFi&type=posts&limit=10",
+        )
+        for endpoint in endpoints:
+            try:
+                candidate_sets.append(extract_posts(api("GET", endpoint)))
+            except (requests.RequestException, ValueError, RuntimeError, PermissionError) as exc:
+                log.debug("Moltbook discovery source %s unavailable: %s", endpoint.split("?")[0], exc)
+        posts_by_id = {}
+        for batch in candidate_sets:
+            for item in batch:
+                if isinstance(item, dict) and item.get("id"):
+                    posts_by_id[str(item["id"])] = item
+        posts = list(posts_by_id.values())
         own_ids = set(str(x) for x in state.get("our_post_ids", []))
         seen = set(str(x) for x in state.get("commented_post_ids", []))
         skipped_seen = 0
         skipped_irrelevant = 0
+        ranked = []
         for post in posts:
             if not isinstance(post, dict):
                 continue
@@ -561,45 +767,33 @@ def maybe_comment(state):
             title_text = str(post.get("title") or "").strip()
             content_text = str(post.get("content") or "").strip()
             text = " ".join((title_text, content_text)).lower()
-            crypto_match = any(term in text for term in CRYPTO_TERMS)
-            relevance_hits = sum(1 for term in RELEVANCE_TERMS if term in text)
+            # Skip obvious engagement bait, giveaways and price-pump claims.
+            if any(term in text for term in ("guaranteed profit", "100x guaranteed", "free airdrop", "dm me to buy", "referral link", "presale guaranteed")):
+                skipped_irrelevant += 1
+                continue
             comment_text = build_contextual_comment(title_text, content_text)
-            # Never use a broad fallback: unrelated posts and generic replies are a spam risk.
-            if not comment_text or (not crypto_match and relevance_hits < 2):
+            if not comment_text:
                 skipped_irrelevant += 1
                 continue
             recent_comments = set(str(x) for x in state.get("recent_comment_texts", []))
             if comment_text in recent_comments:
                 skipped_irrelevant += 1
                 continue
+            topic = _topic_for_text(text)
+            engagement = int(post.get("upvotes") or post.get("score") or 0) + 2 * int(post.get("comment_count") or post.get("comments_count") or 0)
+            ranked.append((engagement, post, comment_text))
 
-            # Upvote only a thread that passed the same strict relevance checks.
-            upvoted = set(str(x) for x in state.get("upvoted_post_ids", []))
-            if post_id not in upvoted:
-                try:
-                    vote_result = api("POST", f"/posts/{quote(post_id, safe='')}/upvote")
-                    if not (isinstance(vote_result, dict) and vote_result.get("success") is False):
-                        upvoted.add(post_id)
-                        state["upvoted_post_ids"] = list(upvoted)[-500:]
-                        write_state(state)
-                        notify_telegram_activity(
-                            "upvote", str(post.get("title") or "Relevant Moltbook post"),
-                            "https://www.moltbook.com/post/" + quote(post_id, safe=""),
-                            "Agent upvoted a relevant community post.",
-                            full_text="Upvoted a relevant discussion."
-                        )
-                        log.info("Upvoted a relevant Moltbook post.")
-                except requests.HTTPError as vote_exc:
-                    if vote_exc.response is not None and vote_exc.response.status_code == 409:
-                        upvoted.add(post_id)
-                        state["upvoted_post_ids"] = list(upvoted)[-500:]
-                        write_state(state)
-                    else:
-                        log.warning("Could not upvote Moltbook post: %s", vote_exc)
-                except (requests.RequestException, ValueError, RuntimeError, PermissionError) as vote_exc:
-                    log.warning("Could not upvote Moltbook post: %s", vote_exc)
-
-            # One contextual contribution per thread, deduplicated and within daily limits.
+        # Prefer discussions already attracting real conversation; never auto-upvote.
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        for _, post, comment_text in ranked:
+            if counts.get(day, 0) >= MAX_COMMENTS_PER_DAY:
+                log.info("Moltbook daily comment cap reached (%s).", MAX_COMMENTS_PER_DAY)
+                break
+            post_id = str(post.get("id") or "")
+            title_text = str(post.get("title") or "").strip()
+            content_text = str(post.get("content") or "").strip()
+            seen.add(post_id)
+            # One substantive contribution per thread, within daily limits.
             result = api("POST", f"/posts/{quote(post_id, safe='')}/comments", {"content": comment_text})
             if isinstance(result, dict) and result.get("verification"):
                 log.warning("Moltbook requested a verification challenge for a comment; comment was not counted as published.")
@@ -630,8 +824,12 @@ def maybe_comment(state):
             notify_telegram_activity("comment", post_title, post_url, "Original discussion by another Moltbook user.", full_text=comment_text, image_url=post_image)
             log.info("Added a contextual comment to a relevant Moltbook discussion (post id hidden).")
             return state
-        log.info("No new relevant Moltbook discussion found for a comment (checked=%s, already_seen_or_own=%s, filtered_out=%s).",
-                 len(posts), skipped_seen, skipped_irrelevant)
+        if not ranked:
+            log.info("No new relevant Moltbook discussion found (checked=%s, already_seen_or_own=%s, filtered_out=%s).",
+                     len(posts), skipped_seen, skipped_irrelevant)
+        else:
+            log.info("Moltbook found %s relevant discussion(s) after reviewing %s candidates; daily cap=%s.",
+                     len(ranked), len(posts), MAX_COMMENTS_PER_DAY)
     except (requests.RequestException, ValueError, RuntimeError, PermissionError) as exc:
         log.error("Moltbook comment check failed: %s", exc)
     return state
@@ -647,6 +845,7 @@ def main():
         if home is not None:
             state = read_state()
             state = ensure_zombcash_submolt(state)
+            state = maybe_reply_to_our_posts(state, home)
             state = maybe_post(state)
             state = maybe_comment(state)
             write_state(state)
