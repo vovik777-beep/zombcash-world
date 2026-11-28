@@ -11,6 +11,7 @@ from sniper_paper_price_feed import (
     normalize_jupiter_paper_mark,
     normalize_geckoterminal_paper_mark,
     normalize_geckoterminal_pool_mark,
+    geckoterminal_pool_diagnostics,
     normalize_trade_feed_paper_mark,
     paper_price_mark_worker,
     select_gecko_pool_mints,
@@ -196,6 +197,43 @@ class PaperPriceFeedTests(unittest.TestCase):
             ]
         }
         self.assertIsNone(normalize_geckoterminal_pool_mark(payload, MINT))
+
+    def test_geckoterminal_pool_diagnostics_report_matching_pools_and_liquidity(self):
+        payload = {
+            "data": [
+                {
+                    "attributes": {"reserve_in_usd": "250"},
+                    "relationships": {
+                        "base_token": {"data": {"id": "solana_" + MINT}},
+                        "quote_token": {"data": {"id": "solana_" + SOL_MINT}},
+                    },
+                },
+                {
+                    "attributes": {"reserve_in_usd": "9000"},
+                    "relationships": {
+                        "base_token": {"data": {"id": "solana_OtherToken"}},
+                        "quote_token": {"data": {"id": "solana_" + SOL_MINT}},
+                    },
+                },
+                {
+                    "attributes": {"reserve_in_usd": "1200"},
+                    "relationships": {
+                        "base_token": {"data": {"id": "solana_" + SOL_MINT}},
+                        "quote_token": {"data": {"id": "solana_" + MINT}},
+                    },
+                },
+            ]
+        }
+        self.assertEqual(geckoterminal_pool_diagnostics(payload, MINT), {
+            "pool_count": 3,
+            "matching_pool_count": 2,
+            "max_liquidity_usd": 1200.0,
+        })
+        self.assertEqual(geckoterminal_pool_diagnostics({"data": []}, MINT), {
+            "pool_count": 0,
+            "matching_pool_count": 0,
+            "max_liquidity_usd": None,
+        })
 
     def test_trade_feed_mark_accepts_recent_valid_sol_trade(self):
         now_ms = 1_800_000_000_000
