@@ -217,6 +217,38 @@ def normalize_geckoterminal_pool_mark(payload, mint: str, observed_at_ms: int | 
     }
 
 
+MAX_TRADE_FEED_MARK_AGE_MS = 120_000
+
+
+def normalize_trade_feed_paper_mark(payload, mint: str, now_ms: int | None = None):
+    """Build a price mark only from a recent, positive SOL-denominated ingested trade."""
+    if not MINT_RE.fullmatch(str(mint or "")) or not isinstance(payload, dict):
+        return None
+    if str(payload.get("mint") or "") != mint:
+        return None
+    source = str(payload.get("source") or "").lower()
+    if source not in {"shrine", "pumpdev", "pumpportal", "helius_standard_ws"}:
+        return None
+    price_sol = _number(payload.get("priceSol"))
+    observed_at = _number(payload.get("eventAt"))
+    side = str(payload.get("side") or "").lower()
+    current_ms = int(now_ms if now_ms is not None else time.time() * 1000)
+    if price_sol is None or price_sol <= 0 or observed_at is None or observed_at <= 0:
+        return None
+    if side not in {"buy", "sell"}:
+        return None
+    if observed_at < current_ms - MAX_TRADE_FEED_MARK_AGE_MS or observed_at > current_ms + 5_000:
+        return None
+    return {
+        "mint": mint,
+        "source": "trade_feed",
+        "priceSol": price_sol,
+        "liquidityUsd": 0,
+        "pairAddress": f"trade-feed:{source}:{side}",
+        "observedAt": int(observed_at),
+    }
+
+
 async def _fetch_geckoterminal_token_pools(session: ClientSession, mint: str):
     url = GECKOTERMINAL_TOKEN_POOLS_URL.format(mint)
     async with session.get(
@@ -346,7 +378,35 @@ async def paper_price_mark_worker(supabase_request, state):
                         errors += 1
                         log.warning("[Sniper] Jupiter Paper price fallback failed (%s)", type(exc).__name__)
 
-                gecko_mints = [mint for mint in missing_mints if mint not in jupiter_covered]
+                # Use the actual recent trade tape before spending more public API requests.
+                # This covers active bonding-curve tokens that are not indexed by market aggregators.
+                trade_covered = set()
+                trade_mints = [mint for mint in missing_mints if mint not in jupiter_covered]
+                for mint in trade_mints:
+                    try:
+                        latest_trade = await supabase_request(
+                            "POST",
+                            "rpc/sniper_trade_latest",
+                            payload={"p_mint": mint},
+                        )
+                        mark = normalize_trade_feed_paper_mark(latest_trade, mint)
+                        if mark is None:
+                            continue
+                        saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
+                        if not saved_ok:
+                            errors += 1
+                            log.warning("[Sniper] Trade-feed price mark rejected by Supabase validation")
+                        else:
+                            updated += 1
+                            live_marked += int(live_updated)
+                            trade_covered.add(mint)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] Trade-feed Paper price fallback failed (%s)", type(exc).__name__)
+
+                gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
                 if gecko_mints:
                     # The simple batch index can omit long-tail Solana tokens. Query token pools
                     # directly, but cap this to four per minute to stay comfortably below the
