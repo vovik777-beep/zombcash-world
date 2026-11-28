@@ -261,15 +261,17 @@ class GeckoPoolSelectionTests(unittest.TestCase):
         self.assertEqual(len(selected), len(set(selected)))
         self.assertEqual(next_offset, 1)
 
-    def test_five_mints_rotate_within_seven_lookup_limit(self):
-        first, next_offset = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=0, limit=7)
-        second, next_offset2 = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=next_offset, limit=7)
-        self.assertEqual(first, ["a", "b", "c", "d", "e"])
-        self.assertEqual(second, ["a", "b", "c", "d", "e"])
+    def test_ten_mints_rotate_within_seven_lookup_limit(self):
+        mints = [str(index) for index in range(10)]
+        first, next_offset = select_gecko_pool_mints(mints, offset=0, limit=7)
+        second, next_offset2 = select_gecko_pool_mints(mints, offset=next_offset, limit=7)
+        self.assertEqual(first, mints[:7])
+        self.assertEqual(second, mints[7:] + mints[:4])
         self.assertEqual(len(first), len(set(first)))
         self.assertEqual(len(second), len(set(second)))
-        self.assertEqual(next_offset, 0)
-        self.assertEqual(next_offset2, 0)
+        self.assertEqual(set(mints), set(first) | set(second))
+        self.assertEqual(next_offset, 7)
+        self.assertEqual(next_offset2, 4)
 
     def test_empty_input_returns_no_requests(self):
         self.assertEqual(select_gecko_pool_mints([], offset=0, limit=7), ([], 0))
