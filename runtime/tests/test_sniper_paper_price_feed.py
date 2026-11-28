@@ -11,6 +11,7 @@ from sniper_paper_price_feed import (
     normalize_trade_feed_paper_mark,
     paper_price_mark_worker,
     select_gecko_pool_mints,
+    select_price_feed_mints,
     _save_price_mark,
 )
 
@@ -224,6 +225,22 @@ class PaperPriceFeedTests(unittest.TestCase):
             pair("", MINT, SOL_MINT, 0.001, 1000),
         ], MINT)
         self.assertIsNone(result)
+
+
+class PriceFeedMintSelectionTests(unittest.TestCase):
+    def test_more_than_cycle_limit_rotates_without_starvation(self):
+        mints = [f"mint-{index}" for index in range(25)]
+        first, offset = select_price_feed_mints(mints, offset=0, limit=20)
+        second, next_offset = select_price_feed_mints(mints, offset=offset, limit=20)
+        self.assertEqual(first, mints[:20])
+        self.assertEqual(second, mints[20:] + mints[:15])
+        self.assertEqual(set(mints), set(first) | set(second))
+        self.assertEqual(offset, 20)
+        self.assertEqual(next_offset, 15)
+
+    def test_empty_and_small_sets(self):
+        self.assertEqual(select_price_feed_mints([]), ([], 0))
+        self.assertEqual(select_price_feed_mints(["a", "b"], offset=1), (["b", "a"], 0))
 
 
 class GeckoPoolSelectionTests(unittest.TestCase):
