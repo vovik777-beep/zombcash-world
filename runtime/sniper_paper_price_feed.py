@@ -262,6 +262,17 @@ def geckoterminal_pool_diagnostics(payload, mint: str):
     }
 
 
+def classify_gecko_pool_result(diagnostics):
+    """Classify why a GeckoTerminal pool response did not produce an eligible mark."""
+    matching = int((diagnostics or {}).get("matching_pool_count") or 0)
+    if matching <= 0:
+        return "no_pool"
+    max_liquidity = _number((diagnostics or {}).get("max_liquidity_usd"))
+    if max_liquidity is not None and max_liquidity < MIN_LIQUIDITY_USD:
+        return "below_liquidity_threshold"
+    return "pool_mark_rejected"
+
+
 MAX_TRADE_FEED_MARK_AGE_MS = 120_000
 
 
@@ -576,6 +587,8 @@ async def paper_price_mark_worker(supabase_request, state):
 
             updated = 0
             no_pair = 0
+            below_liquidity = 0
+            rejected_pool = 0
             errors = 0
             dex_covered = set()
             async with ClientSession(timeout=timeout) as session:
@@ -677,10 +690,17 @@ async def paper_price_mark_worker(supabase_request, state):
                             diagnostics = geckoterminal_pool_diagnostics(pools, mint)
                             mark = normalize_geckoterminal_pool_mark(pools, mint)
                             if mark is None:
-                                no_pair += 1
+                                reason = classify_gecko_pool_result(diagnostics)
+                                if reason == "no_pool":
+                                    no_pair += 1
+                                elif reason == "below_liquidity_threshold":
+                                    below_liquidity += 1
+                                else:
+                                    rejected_pool += 1
                                 log.info(
-                                    "[Sniper] GeckoTerminal Paper pool lookup has no eligible mark mint=%s pools=%s matching=%s max_liquidity_usd=%s",
+                                    "[Sniper] GeckoTerminal Paper pool lookup rejected mint=%s reason=%s pools=%s matching=%s max_liquidity_usd=%s",
                                     mint,
+                                    reason,
                                     diagnostics["pool_count"],
                                     diagnostics["matching_pool_count"],
                                     diagnostics["max_liquidity_usd"],
@@ -711,11 +731,13 @@ async def paper_price_mark_worker(supabase_request, state):
             state["paperPriceFeedMints"] = len(mints)
             state["paperPriceFeedUpdated"] = updated
             state["paperPriceFeedNoPair"] = no_pair
+            state["paperPriceFeedBelowLiquidity"] = below_liquidity
+            state["paperPriceFeedRejectedPool"] = rejected_pool
             state["paperPriceFeedErrors"] = errors
             state["paperPriceFeedLastAt"] = int(time.time() * 1000)
             log.info(
-                "[Sniper] Paper price refresh complete: checked=%s updated=%s no_pair=%s errors=%s",
-                len(mints), updated, no_pair, errors,
+                "[Sniper] Paper price refresh complete: checked=%s updated=%s no_pool=%s below_liquidity=%s rejected_pool=%s errors=%s",
+                len(mints), updated, no_pair, below_liquidity, rejected_pool, errors,
             )
         except asyncio.CancelledError:
             raise

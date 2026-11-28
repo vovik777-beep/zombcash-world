@@ -216,10 +216,13 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
+                            error_detail = str(exc).strip()[:100] or type(exc).__name__
+                            feed_state["shrineTradeQuoteLookupFailures"] = int(feed_state.get("shrineTradeQuoteLookupFailures", 0)) + 1
+                            feed_state["shrineTradeLastQuoteLookupError"] = error_detail
                             feed_state["shrineTradeLastError"] = type(exc).__name__
                             feed_state["shrineTradeLastInvalidReason"] = "metadata_quote_lookup_failed"
                             pending_trades.pop(mint, None)
-                            log.warning("[Sniper] Shrine quote lookup failed mint=%s error=%s", mint, type(exc).__name__)
+                            log.warning("[Sniper] Shrine quote lookup failed mint=%s error=%s", mint, error_detail)
 
                     async def subscribe_dispatcher():
                         while launch_enabled.is_set() and not ws.closed:
@@ -337,19 +340,19 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 elif not payload.get("signature"):
                                     reason = "missing_signature"
                                 else:
-                                    quote_value = str(payload.get("quote") or payload.get("quoteMint") or "")[:64]
+                                    diagnostic_quote = str(quote_value or "")[:64]
                                     sol_raw = payload.get("sol_amount")
                                     quote_raw = payload.get("quote_amount")
                                     if not isinstance(payload.get("is_buy"), bool):
                                         reason = "invalid_is_buy"
-                                    elif sol_raw in (None, "") and quote_value not in {SOL_MINT, "SOL", "WSOL"}:
+                                    elif sol_raw in (None, "") and diagnostic_quote not in {SOL_MINT, "SOL", "WSOL"}:
                                         reason = "no_sol_value_for_quote"
                                     elif not payload.get("token_amount") or not payload.get("price") or not payload.get("timestamp"):
                                         reason = "missing_amount_price_or_timestamp"
                                     else:
                                         reason = "invalid_numeric_value"
                                     context = {
-                                        "quote": quote_value or None,
+                                        "quote": diagnostic_quote or None,
                                         "has_sol_amount": sol_raw not in (None, ""),
                                         "has_quote_amount": quote_raw not in (None, ""),
                                         "has_token_amount": payload.get("token_amount") not in (None, ""),
