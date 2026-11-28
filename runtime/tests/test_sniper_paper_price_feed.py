@@ -13,6 +13,7 @@ from sniper_paper_price_feed import (
     normalize_geckoterminal_pool_mark,
     geckoterminal_pool_diagnostics,
     classify_gecko_pool_result,
+    is_gecko_rate_limit_error,
     normalize_trade_feed_paper_mark,
     paper_price_mark_worker,
     select_gecko_pool_mints,
@@ -235,6 +236,11 @@ class PaperPriceFeedTests(unittest.TestCase):
             "matching_pool_count": 0,
             "max_liquidity_usd": None,
         })
+
+    def test_gecko_rate_limit_detection_is_specific(self):
+        self.assertTrue(is_gecko_rate_limit_error(RuntimeError("GeckoTerminal token pools HTTP 429")))
+        self.assertFalse(is_gecko_rate_limit_error(RuntimeError("GeckoTerminal token pools HTTP 500")))
+        self.assertFalse(is_gecko_rate_limit_error(RuntimeError("connection timeout")))
 
     def test_gecko_pool_result_classifies_no_pool_low_liquidity_and_rejected_mark(self):
         self.assertEqual(classify_gecko_pool_result({
