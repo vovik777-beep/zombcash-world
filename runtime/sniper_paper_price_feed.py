@@ -285,6 +285,7 @@ async def _fetch_token_pairs(session: ClientSession, mint: str):
 
 
 async def _save_price_mark(supabase_request, mark):
+    """Persist a validated mark for Paper positions only."""
     saved = await supabase_request(
         "POST",
         "rpc/sniper_paper_price_mark_upsert",
@@ -292,21 +293,11 @@ async def _save_price_mark(supabase_request, mark):
     )
     if not isinstance(saved, dict) or saved.get("ok") is not True:
         return False, False
-    try:
-        observed_at = datetime.fromtimestamp(int(mark["observedAt"]) / 1000, tz=timezone.utc).isoformat()
-        result = await supabase_request(
-            "POST",
-            "rpc/sniper_live_position_mark",
-            payload={"p_mint": mark["mint"], "p_price_sol": mark["priceSol"], "p_observed_at": observed_at},
-        )
-        return True, bool(result)
-    except Exception as exc:
-        log.warning("[Sniper] Live position mark update failed (%s)", type(exc).__name__)
-        return True, False
+    return True, False
 
 
 async def paper_price_mark_worker(supabase_request, state):
-    """Refresh shared price marks for open Paper and Live positions; never trades."""
+    """Refresh price marks for open Paper positions only; never touches Live positions or trades."""
     timeout = ClientTimeout(total=12, connect=5)
     while True:
         try:
@@ -315,14 +306,9 @@ async def paper_price_mark_worker(supabase_request, state):
                 "rpc/sniper_open_paper_position_mints",
                 payload={},
             )
-            live_rows = await supabase_request(
-                "POST",
-                "rpc/sniper_open_live_position_mints",
-                payload={},
-            )
             mints = []
             seen = set()
-            for source_rows in (rows, live_rows):
+            for source_rows in (rows,):
                 if isinstance(source_rows, list):
                     for row in source_rows:
                         mint = str(row.get("mint") or "").strip() if isinstance(row, dict) else ""
