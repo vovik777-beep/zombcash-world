@@ -14,7 +14,7 @@ from helius_standard_ws import helius_trade_worker
 from sniper_paper_price_feed import live_price_mark_worker, paper_price_mark_worker
 from sniper_live_lifecycle import live_fill_reconciliation_worker
 from sniper_live_engine import live_entry_worker, live_exit_worker
-from shrine_trade_feed import shrine_trade_worker
+from shrine_trade_feed import paper_position_subscription_worker, shrine_trade_worker
 
 log = logging.getLogger("zombcash.sniper.launches")
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -107,6 +107,11 @@ FEED_STATE = {
     "shrineTradeInvalidEvents": 0,
     "shrineTradeLastInvalidReason": None,
     "shrineTradeLastInvalidContext": None,
+    "shrinePaperMintTotal": 0,
+    "shrinePaperMintsQueued": 0,
+    "shrinePaperMintOffset": 0,
+    "shrinePaperMintQueueDrops": 0,
+    "shrinePaperMintLastError": None,
 }
 
 
@@ -325,6 +330,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
     launch_enabled = asyncio.Event()
     pumpportal_mint_queue = asyncio.Queue(maxsize=1000)
     shrine_mint_queue = asyncio.Queue(maxsize=1000)
+    shrine_paper_mint_queue = asyncio.Queue(maxsize=40)
     active_launch_ws = None
     active_pumpdev_ws = None
     helius_active_mints = {}
@@ -805,8 +811,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         restored = await _restore_paper_monitoring_opt_in(supabase_request, launch_enabled)
         application["sniper_launch_feed_task"] = asyncio.create_task(worker())
         application["pumpdev_trade_feed_task"] = asyncio.create_task(pumpdev_trade_worker())
+        application["shrine_paper_subscription_task"] = asyncio.create_task(
+            paper_position_subscription_worker(launch_enabled, shrine_paper_mint_queue, supabase_request, FEED_STATE)
+        )
         application["shrine_trade_feed_task"] = asyncio.create_task(
-            shrine_trade_worker(launch_enabled, shrine_mint_queue, supabase_request, FEED_STATE)
+            shrine_trade_worker(launch_enabled, shrine_mint_queue, supabase_request, FEED_STATE, shrine_paper_mint_queue)
         )
         application["helius_trade_feed_task"] = asyncio.create_task(
             helius_trade_worker(launch_enabled, helius_active_mints, helius_mints_changed, supabase_request, FEED_STATE)
@@ -836,6 +845,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         task = application.get("sniper_launch_feed_task")
         trade_task = application.get("pumpdev_trade_feed_task")
         shrine_task = application.get("shrine_trade_feed_task")
+        shrine_paper_task = application.get("shrine_paper_subscription_task")
         watchdog_task = application.get("sniper_paper_watchdog_task")
         helius_task = application.get("helius_trade_feed_task")
         price_task = application.get("sniper_paper_price_feed_task")
@@ -843,7 +853,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         fill_reconciler_task = application.get("sniper_live_fill_reconciler_task")
         live_entry_task = application.get("sniper_live_entry_task")
         live_exit_task = application.get("sniper_live_exit_task")
-        for running_task in (task, trade_task, shrine_task, helius_task, watchdog_task, price_task, live_price_task, fill_reconciler_task, live_entry_task, live_exit_task):
+        for running_task in (task, trade_task, shrine_task, shrine_paper_task, helius_task, watchdog_task, price_task, live_price_task, fill_reconciler_task, live_entry_task, live_exit_task):
             if running_task:
                 running_task.cancel()
                 try:
