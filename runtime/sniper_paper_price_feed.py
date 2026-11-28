@@ -16,8 +16,9 @@ DEXSCREENER_TOKEN_PAIRS_URL = "https://api.dexscreener.com/token-pairs/v1/solana
 JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 GECKOTERMINAL_SIMPLE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{}"
 GECKOTERMINAL_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{}/pools"
+GECKOTERMINAL_MULTI_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/multi/{}"
 MAX_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
-PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE = 1  # One per 30-second cycle leaves headroom for the site's shared GeckoTerminal calls.
+PAPER_GECKO_POOL_BATCH_SIZE = 30  # GeckoTerminal multi-token endpoint accepts up to 30 token addresses.
 MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
 MAX_LIVE_MINTS_PER_CYCLE = 60
 DEXSCREENER_TOKEN_BATCH_URL = "https://api.dexscreener.com/tokens/v1/solana/{}"
@@ -273,6 +274,34 @@ def classify_gecko_pool_result(diagnostics):
     return "pool_mark_rejected"
 
 
+def geckoterminal_pools_by_mint(payload, mints):
+    """Split a GeckoTerminal multi-token response into per-token top-pool payloads."""
+    if not isinstance(payload, dict):
+        return {mint: {"data": []} for mint in mints}
+    tokens = payload.get("data") if isinstance(payload.get("data"), list) else []
+    included = payload.get("included") if isinstance(payload.get("included"), list) else []
+    pools_by_id = {
+        str(pool.get("id")): pool
+        for pool in included
+        if isinstance(pool, dict) and pool.get("id")
+    }
+    requested = set(mints)
+    result = {mint: {"data": []} for mint in mints}
+    for token in tokens:
+        if not isinstance(token, dict):
+            continue
+        attrs = token.get("attributes") if isinstance(token.get("attributes"), dict) else {}
+        mint = str(attrs.get("address") or "").strip()
+        if mint not in requested:
+            continue
+        relationships = token.get("relationships") if isinstance(token.get("relationships"), dict) else {}
+        top_pools = relationships.get("top_pools") if isinstance(relationships.get("top_pools"), dict) else {}
+        top_pool_rows = top_pools.get("data") if isinstance(top_pools.get("data"), list) else []
+        pool_ids = [str(row.get("id")) for row in top_pool_rows if isinstance(row, dict) and row.get("id")]
+        result[mint] = {"data": [pools_by_id[pool_id] for pool_id in pool_ids if pool_id in pools_by_id]}
+    return result
+
+
 GECKO_RATE_LIMIT_COOLDOWN_SECONDS = 60
 
 
@@ -327,6 +356,27 @@ async def _fetch_geckoterminal_token_pools(session: ClientSession, mint: str):
             raise RuntimeError(f"GeckoTerminal token pools HTTP {response.status}")
         payload = await response.json(content_type=None)
     return payload if isinstance(payload, dict) else {}
+
+
+async def _fetch_geckoterminal_multi_token_pools(session: ClientSession, mints: list[str]):
+    """Fetch top pools for up to 30 Solana tokens in one public API request."""
+    unique = list(dict.fromkeys(mint for mint in mints if MINT_RE.fullmatch(str(mint or ""))))
+    if not unique:
+        return {"data": [], "included": []}
+    if len(unique) > 30:
+        raise ValueError("GeckoTerminal multi-token request exceeds 30 addresses")
+    url = GECKOTERMINAL_MULTI_TOKEN_POOLS_URL.format(",".join(unique))
+    async with session.get(
+        url,
+        params={"include": "top_pools"},
+        headers={"Accept": "application/json;version=20230203", "User-Agent": "ZombieCash-PaperPrice/1.0"},
+    ) as response:
+        if response.status == 404:
+            return {"data": [], "included": []}
+        if response.status != 200:
+            raise RuntimeError(f"GeckoTerminal multi-token pools HTTP {response.status}")
+        payload = await response.json(content_type=None)
+    return payload if isinstance(payload, dict) else {"data": [], "included": []}
 
 
 async def _fetch_token_pairs(session: ClientSession, mint: str):
@@ -515,173 +565,6 @@ async def live_price_mark_worker(supabase_request, state):
 
                 gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
                 if gecko_mints:
-                    pool_mints, next_offset = select_gecko_pool_mints(
-                        gecko_mints,
-                        state.get("livePriceFeedGeckoOffset", 0),
-                        MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE,
-                    )
-                    state["livePriceFeedGeckoOffset"] = next_offset
-                    state["livePriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
-                    for index, mint in enumerate(pool_mints):
-                        try:
-                            pools = await _fetch_geckoterminal_token_pools(session, mint)
-                            mark = normalize_geckoterminal_pool_mark(pools, mint)
-                            if mark is None:
-                                no_pair += 1
-                                continue
-                            updated += await _save_live_price_mark(supabase_request, mark)
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as exc:
-                            errors += 1
-                            log.warning("[Sniper] Live GeckoTerminal pool fallback failed (%s)", type(exc).__name__)
-                        if index < len(pool_mints) - 1:
-                            await asyncio.sleep(REQUEST_SPACING_SECONDS)
-
-            state["livePriceFeedStatus"] = "active"
-            state["livePriceFeedMints"] = len(mints)
-            state["livePriceFeedUpdated"] = updated
-            state["livePriceFeedNoPair"] = no_pair
-            state["livePriceFeedErrors"] = errors
-            state["livePriceFeedLastAt"] = int(time.time() * 1000)
-            log.info(
-                "[Sniper] Live price refresh complete: checked=%s updated=%s no_pair=%s errors=%s",
-                len(mints), updated, no_pair, errors,
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:
-            state["livePriceFeedStatus"] = "error"
-            state["livePriceFeedError"] = type(exc).__name__
-            log.warning("[Sniper] Live price feed cycle failed (%s)", type(exc).__name__)
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
-
-
-async def paper_price_mark_worker(supabase_request, state):
-    """Refresh price marks for open Paper positions only; never touches Live positions or trades."""
-    timeout = ClientTimeout(total=12, connect=5)
-    while True:
-        try:
-            rows = await supabase_request(
-                "POST",
-                "rpc/sniper_open_paper_position_mints",
-                payload={},
-            )
-            mints = []
-            seen = set()
-            for source_rows in (rows,):
-                if isinstance(source_rows, list):
-                    for row in source_rows:
-                        mint = str(row.get("mint") or "").strip() if isinstance(row, dict) else ""
-                        if MINT_RE.fullmatch(mint) and mint not in seen:
-                            seen.add(mint)
-                            mints.append(mint)
-            if not mints:
-                state["paperPriceFeedStatus"] = "waiting_for_open_positions"
-                state["paperPriceFeedMints"] = 0
-                state["paperPriceFeedTotalMints"] = 0
-                state["paperPriceFeedMintOffset"] = 0
-                await asyncio.sleep(30)
-                continue
-
-            total_mints = len(mints)
-            mints, next_offset = select_price_feed_mints(
-                mints,
-                state.get("paperPriceFeedMintOffset", 0),
-                MAX_MINTS_PER_CYCLE,
-            )
-            state["paperPriceFeedMintOffset"] = next_offset
-            state["paperPriceFeedTotalMints"] = total_mints
-
-            updated = 0
-            no_pair = 0
-            below_liquidity = 0
-            rejected_pool = 0
-            errors = 0
-            dex_covered = set()
-            async with ClientSession(timeout=timeout) as session:
-                # Use DexScreener's multi-token endpoint so every open Paper mint
-                # can be refreshed inside the 90-second database freshness window.
-                try:
-                    pairs_by_mint = await _fetch_token_pairs_batch(session, mints)
-                except asyncio.CancelledError:
-                    raise
-                except Exception as exc:
-                    pairs_by_mint = {}
-                    errors += 1
-                    log.warning("[Sniper] DexScreener Paper batch price refresh failed (%s)", type(exc).__name__)
-
-                for mint in mints:
-                    try:
-                        mark = normalize_dexscreener_paper_mark(pairs_by_mint.get(mint, []), mint)
-                        if mark is not None:
-                            saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
-                            if not saved_ok:
-                                errors += 1
-                                log.warning("[Sniper] DexScreener price mark rejected by Supabase validation")
-                            else:
-                                updated += 1
-                                dex_covered.add(mint)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        errors += 1
-                        log.warning("[Sniper] DexScreener Paper price normalization failed (%s)", type(exc).__name__)
-
-                # Batch fallback for tokens without an eligible DexScreener pair.
-                # Jupiter is preferred; GeckoTerminal is a final keyless batch source.
-                missing_mints = [mint for mint in mints if mint not in dex_covered]
-                jupiter_covered = set()
-                if missing_mints:
-                    try:
-                        prices = await _fetch_jupiter_prices_batched(session, missing_mints)
-                        observed_at_ms = int(time.time() * 1000)
-                        for mint in missing_mints:
-                            mark = normalize_jupiter_paper_mark(prices, mint, observed_at_ms)
-                            if mark is None:
-                                continue
-                            saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
-                            if not saved_ok:
-                                errors += 1
-                                log.warning("[Sniper] Jupiter price mark rejected by Supabase validation")
-                            else:
-                                updated += 1
-                                jupiter_covered.add(mint)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        errors += 1
-                        log.warning("[Sniper] Jupiter Paper price fallback failed (%s)", type(exc).__name__)
-
-                # Use the actual recent trade tape before spending more public API requests.
-                # This covers active bonding-curve tokens that are not indexed by market aggregators.
-                trade_covered = set()
-                trade_mints = [mint for mint in missing_mints if mint not in jupiter_covered]
-                for mint in trade_mints:
-                    try:
-                        latest_trade = await supabase_request(
-                            "POST",
-                            "rpc/sniper_trade_latest",
-                            payload={"p_mint": mint},
-                        )
-                        mark = normalize_trade_feed_paper_mark(latest_trade, mint)
-                        if mark is None:
-                            continue
-                        saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
-                        if not saved_ok:
-                            errors += 1
-                            log.warning("[Sniper] Trade-feed price mark rejected by Supabase validation")
-                        else:
-                            updated += 1
-                            trade_covered.add(mint)
-                    except asyncio.CancelledError:
-                        raise
-                    except Exception as exc:
-                        errors += 1
-                        log.warning("[Sniper] Trade-feed Paper price fallback failed (%s)", type(exc).__name__)
-
-                gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
-                if gecko_mints:
                     retry_after = float(state.get("paperPriceFeedGeckoRetryAfter", 0) or 0)
                     if time.time() < retry_after:
                         state["paperPriceFeedGeckoDeferred"] = len(gecko_mints)
@@ -691,50 +574,52 @@ async def paper_price_mark_worker(supabase_request, state):
                             len(gecko_mints),
                         )
                     else:
-                        # The public endpoint is shared with the site's market/history feeds.
-                        # Stop this worker temporarily after a 429 instead of repeating failed calls every cycle.
+                        # One request returns top pools for up to 30 tokens, leaving shared API headroom.
                         pool_mints, next_offset = select_gecko_pool_mints(
                             gecko_mints,
                             state.get("paperPriceFeedGeckoOffset", 0),
-                            PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE,
+                            PAPER_GECKO_POOL_BATCH_SIZE,
                         )
                         state["paperPriceFeedGeckoOffset"] = next_offset
                         state["paperPriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
-                        for index, mint in enumerate(pool_mints):
+                        if pool_mints:
                             try:
-                                pools = await _fetch_geckoterminal_token_pools(session, mint)
-                                diagnostics = geckoterminal_pool_diagnostics(pools, mint)
-                                mark = normalize_geckoterminal_pool_mark(pools, mint)
-                                if mark is None:
-                                    reason = classify_gecko_pool_result(diagnostics)
-                                    if reason == "no_pool":
-                                        no_pair += 1
-                                    elif reason == "below_liquidity_threshold":
-                                        below_liquidity += 1
+                                batch_payload = await _fetch_geckoterminal_multi_token_pools(session, pool_mints)
+                                pools_by_mint = geckoterminal_pools_by_mint(batch_payload, pool_mints)
+                                for mint in pool_mints:
+                                    pools = pools_by_mint.get(mint, {"data": []})
+                                    diagnostics = geckoterminal_pool_diagnostics(pools, mint)
+                                    mark = normalize_geckoterminal_pool_mark(pools, mint)
+                                    if mark is None:
+                                        reason = classify_gecko_pool_result(diagnostics)
+                                        if reason == "no_pool":
+                                            no_pair += 1
+                                        elif reason == "below_liquidity_threshold":
+                                            below_liquidity += 1
+                                        else:
+                                            rejected_pool += 1
+                                        log.info(
+                                            "[Sniper] GeckoTerminal Paper pool lookup rejected mint=%s reason=%s pools=%s matching=%s max_liquidity_usd=%s",
+                                            mint,
+                                            reason,
+                                            diagnostics["pool_count"],
+                                            diagnostics["matching_pool_count"],
+                                            diagnostics["max_liquidity_usd"],
+                                        )
+                                        continue
+                                    saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
+                                    if not saved_ok:
+                                        errors += 1
+                                        log.warning("[Sniper] GeckoTerminal pool mark rejected by Supabase validation")
                                     else:
-                                        rejected_pool += 1
-                                    log.info(
-                                        "[Sniper] GeckoTerminal Paper pool lookup rejected mint=%s reason=%s pools=%s matching=%s max_liquidity_usd=%s",
-                                        mint,
-                                        reason,
-                                        diagnostics["pool_count"],
-                                        diagnostics["matching_pool_count"],
-                                        diagnostics["max_liquidity_usd"],
-                                    )
-                                    continue
-                                saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
-                                if not saved_ok:
-                                    errors += 1
-                                    log.warning("[Sniper] GeckoTerminal pool mark rejected by Supabase validation")
-                                else:
-                                    updated += 1
-                                    log.info(
-                                        "[Sniper] GeckoTerminal Paper pool mark saved mint=%s pools=%s matching=%s liquidity_usd=%.2f",
-                                        mint,
-                                        diagnostics["pool_count"],
-                                        diagnostics["matching_pool_count"],
-                                        mark["liquidityUsd"],
-                                    )
+                                        updated += 1
+                                        log.info(
+                                            "[Sniper] GeckoTerminal Paper pool mark saved mint=%s pools=%s matching=%s liquidity_usd=%.2f",
+                                            mint,
+                                            diagnostics["pool_count"],
+                                            diagnostics["matching_pool_count"],
+                                            mark["liquidityUsd"],
+                                        )
                             except asyncio.CancelledError:
                                 raise
                             except Exception as exc:
@@ -745,10 +630,8 @@ async def paper_price_mark_worker(supabase_request, state):
                                         "[Sniper] GeckoTerminal HTTP 429; pausing Paper pool fallback for %ss",
                                         GECKO_RATE_LIMIT_COOLDOWN_SECONDS,
                                     )
-                                    break
-                                log.warning("[Sniper] GeckoTerminal token-pools fallback failed (%s: %s)", type(exc).__name__, str(exc)[:100])
-                            if index < len(pool_mints) - 1:
-                                await asyncio.sleep(REQUEST_SPACING_SECONDS)
+                                else:
+                                    log.warning("[Sniper] GeckoTerminal multi-token pool fallback failed (%s: %s)", type(exc).__name__, str(exc)[:100])
 
             state["paperPriceFeedStatus"] = "active"
             state["paperPriceFeedMints"] = len(mints)
