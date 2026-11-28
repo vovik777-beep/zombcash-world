@@ -1,4 +1,7 @@
 import unittest
+from unittest.mock import patch
+
+import moltbook_agent as agent
 
 from moltbook_agent import (
     CONTRACT,
@@ -6,6 +9,7 @@ from moltbook_agent import (
     build_reply_to_comment,
     extract_comments,
     extract_posts,
+    maybe_reply_to_our_posts,
 )
 
 
@@ -58,6 +62,80 @@ class MoltbookEngagementTests(unittest.TestCase):
     def test_comments_are_extracted(self):
         comments = extract_comments({"data": {"comments": [{"id": "comment-1"}]}})
         self.assertEqual([{"id": "comment-1"}], comments)
+
+
+    def test_reply_handler_respects_global_comment_cooldown(self):
+        state = {"last_comment_epoch": 500}
+        home = {"activity_on_your_posts": [{"post_id": "post-1"}]}
+        with patch.object(agent, "COMMENTING_ENABLED", True), \
+             patch.object(agent, "COMMENT_INTERVAL", 7200), \
+             patch.object(agent.time, "time", return_value=1000), \
+             patch.object(agent, "api") as api_call:
+            maybe_reply_to_our_posts(state, home)
+        api_call.assert_not_called()
+
+    def test_reply_handler_obeys_disabled_commenting_switch(self):
+        state = {}
+        home = {"activity_on_your_posts": [{"post_id": "post-1"}]}
+        with patch.object(agent, "COMMENTING_ENABLED", False), \
+             patch.object(agent, "api") as api_call:
+            maybe_reply_to_our_posts(state, home)
+        api_call.assert_not_called()
+
+    def test_deliberately_skipped_comment_is_persisted_before_reading_notifications(self):
+        state = {}
+        home = {"activity_on_your_posts": [{"post_id": "post-1", "post_title": "Community links"}]}
+        comments_response = {
+            "comments": [{
+                "id": "comment-skip-1",
+                "author": {"name": "real_member"},
+                "content": "Great project, love it!",
+            }]
+        }
+        def fake_api(method, path, payload=None):
+            if method == "GET":
+                return comments_response
+            return {"success": True}
+        with patch.object(agent, "COMMENTING_ENABLED", True), \
+             patch.object(agent, "MAX_COMMENTS_PER_DAY", 2), \
+             patch.object(agent, "COMMENT_INTERVAL", 7200), \
+             patch.object(agent, "api", side_effect=fake_api), \
+             patch.object(agent, "write_state") as save_state, \
+             patch.object(agent, "notify_telegram_activity"):
+            maybe_reply_to_our_posts(state, home)
+        self.assertIn("comment-skip-1", state["handled_comment_ids"])
+        self.assertGreaterEqual(save_state.call_count, 1)
+
+    def test_reply_handler_publishes_at_most_one_reply_per_cycle(self):
+        state = {}
+        home = {"activity_on_your_posts": [{"post_id": "post-1", "post_title": "Community links"}]}
+        comments_response = {
+            "comments": [
+                {"id": "comment-1", "author": {"name": "member_one"},
+                 "content": "Could you explain this exact feature and how it works for new users?"},
+                {"id": "comment-2", "author": {"name": "member_two"},
+                 "content": "Could you explain this other feature and how it works for new users?"},
+            ]
+        }
+        calls = []
+        def fake_api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments_response
+            return {"success": True, "comment": {"id": "reply-1"}}
+        with patch.object(agent, "COMMENTING_ENABLED", True), \
+             patch.object(agent, "MAX_COMMENTS_PER_DAY", 2), \
+             patch.object(agent, "COMMENT_INTERVAL", 7200), \
+             patch.object(agent, "api", side_effect=fake_api), \
+             patch.object(agent, "write_state"), \
+             patch.object(agent, "notify_telegram_activity"):
+            maybe_reply_to_our_posts(state, home)
+        published = [call for call in calls if call[0] == "POST" and "/comments" in call[1]]
+        self.assertEqual(1, len(published))
+        self.assertIn("comment-1", state["handled_comment_ids"])
+        self.assertNotIn("comment-2", state["handled_comment_ids"])
+
+
 
 
 if __name__ == "__main__":
