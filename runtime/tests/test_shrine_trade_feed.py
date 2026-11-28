@@ -2,10 +2,24 @@ import asyncio
 import unittest
 
 from aiohttp import ClientConnectionError
-from shrine_trade_feed import _safe_ws_send, normalize_shrine_trade, select_paper_subscription_mints
+from shrine_trade_feed import (
+    _safe_ws_send,
+    normalize_shrine_trade,
+    select_paper_subscription_mints,
+    shrine_metadata_retry_delay,
+)
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 SOL = "So11111111111111111111111111111111111111112"
+
+
+class ShrineMetadataRetryTests(unittest.TestCase):
+    def test_retry_after_is_bounded_and_defaults_safely(self):
+        self.assertEqual(shrine_metadata_retry_delay(None), 5.0)
+        self.assertEqual(shrine_metadata_retry_delay("3"), 3.0)
+        self.assertEqual(shrine_metadata_retry_delay("0"), 1.0)
+        self.assertEqual(shrine_metadata_retry_delay("90"), 30.0)
+        self.assertEqual(shrine_metadata_retry_delay("invalid"), 5.0)
 
 
 class ShrineTradeNormalizationTests(unittest.TestCase):
