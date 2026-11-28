@@ -138,5 +138,40 @@ class MoltbookEngagementTests(unittest.TestCase):
 
 
 
+    def test_legacy_replied_ids_are_migrated_without_duplicate_reply(self):
+        state = {"replied_comment_ids": ["comment-old"]}
+        home = {"activity_on_your_posts": [{"post_id": "post-1", "post_title": "Community links"}]}
+        def fake_api(method, path, payload=None):
+            if method == "GET":
+                return {"comments": [{
+                    "id": "comment-old",
+                    "author": {"name": "real_member"},
+                    "content": "Where can I find the website?",
+                }]}
+            return {"success": True}
+        with patch.object(agent, "COMMENTING_ENABLED", True), \
+             patch.object(agent, "MAX_COMMENTS_PER_DAY", 2), \
+             patch.object(agent, "COMMENT_INTERVAL", 7200), \
+             patch.object(agent, "api", side_effect=fake_api) as api_call, \
+             patch.object(agent, "write_state"), \
+             patch.object(agent, "notify_telegram_activity"):
+            maybe_reply_to_our_posts(state, home)
+        self.assertFalse(any(call.args[0] == "POST" and "/comments" in call.args[1]
+                             for call in api_call.call_args_list))
+        self.assertIn("comment-old", state["handled_comment_ids"])
+
+    def test_daily_comment_cap_blocks_reply_processing(self):
+        from datetime import datetime, timezone
+        day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        state = {"comment_counts": {day: 2}}
+        home = {"activity_on_your_posts": [{"post_id": "post-1"}]}
+        with patch.object(agent, "COMMENTING_ENABLED", True), \
+             patch.object(agent, "MAX_COMMENTS_PER_DAY", 2), \
+             patch.object(agent, "api") as api_call:
+            maybe_reply_to_our_posts(state, home)
+        api_call.assert_not_called()
+
+
+
 if __name__ == "__main__":
     unittest.main()
