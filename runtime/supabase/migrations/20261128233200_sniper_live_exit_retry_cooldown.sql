@@ -102,13 +102,21 @@ AS $function$
       (pg_catalog.to_regprocedure('public.sniper_live_entry_candidates()') is not null) as entry_candidates,
       (pg_catalog.to_regprocedure('public.sniper_live_open_positions()') is not null) as exit_monitoring,
       (pg_catalog.to_regprocedure('public.sniper_live_exit_retry_allowed(uuid,integer)') is not null) as exit_retry,
-      (pg_catalog.to_regprocedure('public.sniper_live_position_note_exit_attempt(uuid,uuid)') is not null) as exit_attempt_recording
+      (pg_catalog.to_regprocedure('public.sniper_live_position_note_exit_attempt(uuid,uuid)') is not null) as exit_attempt_recording,
+      (
+        pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.sniper_paper_engine_process(text)'::regprocedure),'min_buy_count') > 0
+        and pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.sniper_live_entry_candidates()'::regprocedure),'min_buy_count') > 0
+      ) as entry_buy_count_filter,
+      (
+        pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.sniper_paper_engine_process(text)'::regprocedure),'require_socials') > 0
+        and pg_catalog.strpos(pg_catalog.pg_get_functiondef('public.sniper_live_entry_candidates()'::regprocedure),'require_socials') > 0
+      ) as entry_social_filter
   )
   select pg_catalog.jsonb_build_object(
     'ready', fill_ledger and wallet_bound_orders and cost_basis and movement_tracking
       and order_prepare and order_transition and order_wallet_secret and fill_accounting
       and price_marking and fill_reconciliation and unknown_order_reconciliation and entry_candidates and exit_monitoring
-      and exit_retry and exit_attempt_recording,
+      and exit_retry and exit_attempt_recording and entry_buy_count_filter and entry_social_filter,
     'checks', pg_catalog.to_jsonb(checks)
   )
   from checks;
