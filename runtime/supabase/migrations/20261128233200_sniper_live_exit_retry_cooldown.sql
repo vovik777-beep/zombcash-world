@@ -12,6 +12,7 @@ SET search_path TO ''
 AS $function$
 DECLARE
   v_status text;
+  v_side text;
   v_updated_at timestamptz;
   v_cooldown integer := greatest(5, least(coalesce(p_cooldown_seconds,30),300));
 BEGIN
@@ -19,12 +20,12 @@ BEGIN
     RETURN true;
   END IF;
 
-  SELECT o.status,o.updated_at
-    INTO v_status,v_updated_at
+  SELECT o.status,o.side,o.updated_at
+    INTO v_status,v_side,v_updated_at
     FROM sniper.live_orders o
    WHERE o.id=p_order_id;
 
-  IF NOT FOUND THEN
+  IF NOT FOUND OR v_side <> 'sell' THEN
     RETURN false;
   END IF;
 
