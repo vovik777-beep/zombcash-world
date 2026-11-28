@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 
 from sniper_paper_price_feed import (
     SOL_MINT,
+    MAX_MINTS_PER_CYCLE,
     normalize_dexscreener_paper_mark,
     normalize_jupiter_paper_mark,
     normalize_geckoterminal_paper_mark,
@@ -297,6 +298,40 @@ class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
         ])
         self.assertNotIn("rpc/sniper_open_live_position_mints", [call[1] for call in calls])
         self.assertEqual(state["paperPriceFeedStatus"], "waiting_for_open_positions")
+
+    async def test_refreshes_paper_mints_with_batched_dexscreener(self):
+        self.assertEqual(MAX_MINTS_PER_CYCLE, 60)
+        calls = []
+
+        async def supabase_request(method, path, *, payload=None, params=None):
+            calls.append((method, path, payload))
+            if path == "rpc/sniper_open_paper_position_mints":
+                return [{"mint": MINT}]
+            if path == "rpc/sniper_paper_price_mark_upsert":
+                return {"ok": True}
+            raise AssertionError("Unexpected RPC: " + path)
+
+        class FakeSession:
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        async def fake_batch_fetch(session, mints):
+            self.assertEqual(mints, [MINT])
+            return {MINT: [pair("paper-batch-pair", MINT, SOL_MINT, 0.0002, 1200)]}
+
+        state = {}
+        with patch("sniper_paper_price_feed.ClientSession", return_value=FakeSession()), \\
+             patch("sniper_paper_price_feed._fetch_token_pairs_batch", new=AsyncMock(side_effect=fake_batch_fetch)), \\
+             patch("sniper_paper_price_feed.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError)):
+            with self.assertRaises(asyncio.CancelledError):
+                await paper_price_mark_worker(supabase_request, state)
+
+        self.assertIn("rpc/sniper_paper_price_mark_upsert", [call[1] for call in calls])
+        self.assertNotIn("rpc/sniper_live_position_mark", [call[1] for call in calls])
+        self.assertEqual(state["paperPriceFeedStatus"], "active")
+        self.assertEqual(state["paperPriceFeedUpdated"], 1)
 
 
 class LivePositionMarkTests(unittest.IsolatedAsyncioTestCase):
