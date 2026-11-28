@@ -245,34 +245,34 @@ class PriceFeedMintSelectionTests(unittest.TestCase):
 
 class GeckoPoolSelectionTests(unittest.TestCase):
     def test_one_mint_is_selected_once(self):
-        selected, next_offset = select_gecko_pool_mints(["a"], offset=0, limit=4)
+        selected, next_offset = select_gecko_pool_mints(["a"], offset=0, limit=7)
         self.assertEqual(selected, ["a"])
         self.assertEqual(next_offset, 0)
 
     def test_two_mints_are_selected_once_each(self):
-        selected, next_offset = select_gecko_pool_mints(["a", "b"], offset=0, limit=4)
+        selected, next_offset = select_gecko_pool_mints(["a", "b"], offset=0, limit=7)
         self.assertEqual(selected, ["a", "b"])
         self.assertEqual(len(selected), len(set(selected)))
         self.assertEqual(next_offset, 0)
 
     def test_three_mints_are_selected_once_each(self):
-        selected, next_offset = select_gecko_pool_mints(["a", "b", "c"], offset=1, limit=4)
+        selected, next_offset = select_gecko_pool_mints(["a", "b", "c"], offset=1, limit=7)
         self.assertEqual(selected, ["b", "c", "a"])
         self.assertEqual(len(selected), len(set(selected)))
         self.assertEqual(next_offset, 1)
 
-    def test_five_mints_rotate_within_four_lookup_limit(self):
-        first, next_offset = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=0, limit=4)
-        second, next_offset2 = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=next_offset, limit=4)
-        self.assertEqual(first, ["a", "b", "c", "d"])
-        self.assertEqual(second, ["e", "a", "b", "c"])
+    def test_five_mints_rotate_within_seven_lookup_limit(self):
+        first, next_offset = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=0, limit=7)
+        second, next_offset2 = select_gecko_pool_mints(["a", "b", "c", "d", "e"], offset=next_offset, limit=7)
+        self.assertEqual(first, ["a", "b", "c", "d", "e"])
+        self.assertEqual(second, ["a", "b", "c", "d", "e"])
         self.assertEqual(len(first), len(set(first)))
         self.assertEqual(len(second), len(set(second)))
-        self.assertEqual(next_offset, 4)
-        self.assertEqual(next_offset2, 3)
+        self.assertEqual(next_offset, 0)
+        self.assertEqual(next_offset2, 0)
 
     def test_empty_input_returns_no_requests(self):
-        self.assertEqual(select_gecko_pool_mints([], offset=0, limit=4), ([], 0))
+        self.assertEqual(select_gecko_pool_mints([], offset=0, limit=7), ([], 0))
 
 
 class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
