@@ -2,7 +2,18 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from sniper_launch_feed import _event_time_ms, _normalize_launch_event, _normalize_pumpdev_trade_event, _normalize_pumpportal_trade_event, _pumpdev_effective_api_key, _pumpdev_safe_subscription_limit, _read_paper_monitoring_opt_in, _restore_paper_monitoring_opt_in, _safe_number
+from sniper_launch_feed import (
+    _event_time_ms,
+    _normalize_launch_event,
+    _normalize_pumpdev_trade_event,
+    _normalize_pumpportal_trade_event,
+    _pumpdev_effective_api_key,
+    _pumpdev_safe_subscription_limit,
+    _pumpdev_subscription_should_rotate,
+    _read_paper_monitoring_opt_in,
+    _restore_paper_monitoring_opt_in,
+    _safe_number,
+)
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -149,11 +160,17 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertEqual(_pumpdev_effective_api_key("", now=1797000000), "")
 
     def test_pumpdev_subscription_limit_tracks_effective_tier(self):
-        self.assertEqual(_pumpdev_safe_subscription_limit(False), 4)
+        self.assertEqual(_pumpdev_safe_subscription_limit(False), 5)
         self.assertEqual(_pumpdev_safe_subscription_limit(True, "ok"), 20)
         self.assertEqual(_pumpdev_safe_subscription_limit(True, "free", "free"), 20)
-        self.assertEqual(_pumpdev_safe_subscription_limit(True, "free", "anonymous"), 4)
-        self.assertEqual(_pumpdev_safe_subscription_limit(True, "free"), 4)
+        self.assertEqual(_pumpdev_safe_subscription_limit(True, "free", "anonymous"), 5)
+        self.assertEqual(_pumpdev_safe_subscription_limit(True, "free"), 5)
+
+    def test_pumpdev_rotates_quiet_subscriptions_but_keeps_active_trades(self):
+        self.assertTrue(_pumpdev_subscription_should_rotate(0, 0, 10_000))
+        self.assertFalse(_pumpdev_subscription_should_rotate(0, 9_000, 10_000))
+        self.assertTrue(_pumpdev_subscription_should_rotate(0, 59_000, 60_000))
+        self.assertTrue(_pumpdev_subscription_should_rotate(0, 0, 60_000))
 
     def test_free_tier_request_budget_is_conservative(self):
         from pathlib import Path
