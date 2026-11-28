@@ -141,8 +141,9 @@ async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asy
 
 
 # PumpDev account dashboard confirmed the free-key monthly trade quota is exhausted.
-# Use the documented anonymous tier (4 of 5 live subscriptions) until after the
-# account's displayed reset date; then automatically resume the configured free key.
+# Anonymous access allows 5 live subscriptions, but its per-IP monthly trade-message
+# quota is 1k (10k only for IPs grandfathered before 2026-10-27); the provider enforces it.
+# Resume the configured free key automatically after the account's displayed reset date.
 PUMPDEV_ANONYMOUS_FALLBACK_UNTIL_UTC = 1797724800  # 2026-12-20 00:00 UTC
 PUMPDEV_ANONYMOUS_SUBSCRIPTION_LIMIT = 5
 PUMPDEV_SUBSCRIPTION_IDLE_ROTATE_MS = 10_000
