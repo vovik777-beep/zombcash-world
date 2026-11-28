@@ -1,7 +1,17 @@
+import asyncio
 import unittest
 from datetime import datetime, timedelta, timezone
+from unittest.mock import patch
 
-from sniper_live_engine import process_live_entry_candidates, process_live_exit_positions
+from sniper_live_engine import (
+    LIVE_ENTRY_DATABASE_CHECKS,
+    LIVE_EXIT_DATABASE_CHECKS,
+    _live_database_missing_checks,
+    live_entry_worker,
+    live_exit_worker,
+    process_live_entry_candidates,
+    process_live_exit_positions,
+)
 
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -9,6 +19,56 @@ NOW = datetime(2026, 11, 28, 20, 0, tzinfo=timezone.utc)
 
 
 class LiveEngineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_database_readiness_requires_all_entry_migrations(self):
+        async def request(method, path, payload=None):
+            self.assertEqual(path, "rpc/sniper_live_engine_health")
+            return {"ready": False, "checks": {
+                name: name not in {"entry_buy_count_filter", "entry_social_filter"}
+                for name in LIVE_ENTRY_DATABASE_CHECKS
+            }}
+        missing = await _live_database_missing_checks(request, LIVE_ENTRY_DATABASE_CHECKS)
+        self.assertEqual(missing, ["entry_buy_count_filter", "entry_social_filter"])
+
+    async def test_exit_readiness_does_not_depend_on_entry_filters(self):
+        async def request(method, path, payload=None):
+            return {"ready": False, "checks": {
+                name: name not in {"entry_buy_count_filter", "entry_social_filter"}
+                for name in (*LIVE_ENTRY_DATABASE_CHECKS, *LIVE_EXIT_DATABASE_CHECKS)
+            }}
+        missing = await _live_database_missing_checks(request, LIVE_EXIT_DATABASE_CHECKS)
+        self.assertEqual(missing, [])
+
+    async def test_live_entry_worker_stays_locked_when_migrations_are_missing(self):
+        state = {}
+        async def request(method, path, payload=None):
+            self.assertEqual(path, "rpc/sniper_live_engine_health")
+            return {"ready": False, "checks": {}}
+        with patch("sniper_live_engine.live_execution_ready", return_value=True), \
+             patch("sniper_live_engine.live_execution_enabled", return_value=True), \
+             patch("sniper_live_engine.asyncio.sleep", side_effect=asyncio.CancelledError):
+            with self.assertRaises(asyncio.CancelledError):
+                await live_entry_worker(request, state)
+        self.assertEqual(state["liveEntryStatus"], "locked_database_migrations")
+        self.assertTrue(state["liveEntryMissingDatabaseChecks"])
+
+    async def test_live_exit_worker_requires_exit_migration_but_not_entry_filters(self):
+        state = {}
+        async def request(method, path, payload=None):
+            if path == "rpc/sniper_live_engine_health":
+                checks = {name: True for name in LIVE_EXIT_DATABASE_CHECKS}
+                checks.update({"entry_buy_count_filter": False, "entry_social_filter": False})
+                return {"ready": False, "checks": checks}
+            if path == "rpc/sniper_live_open_positions":
+                return []
+            raise AssertionError(path)
+        with patch("sniper_live_engine.live_execution_ready", return_value=True), \
+             patch("sniper_live_engine.live_execution_enabled", return_value=True), \
+             patch("sniper_live_engine.asyncio.sleep", side_effect=asyncio.CancelledError):
+            with self.assertRaises(asyncio.CancelledError):
+                await live_exit_worker(request, state)
+        self.assertEqual(state["liveExitStatus"], "active")
+        self.assertEqual(state["liveExitMissingDatabaseChecks"], [])
+
     async def test_entry_candidates_use_deterministic_order_id(self):
         calls = []
         async def request(method, path, payload=None):
