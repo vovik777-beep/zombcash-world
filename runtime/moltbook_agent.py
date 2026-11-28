@@ -124,7 +124,7 @@ TOPIC_RULES = (
 OWN_AGENT_NAMES = {AGENT_NAME.lower(), "pisk_lauren", "zombiecashscout"}
 
 def _topic_for_text(text):
-    normalized = re.sub(r"\\s+", " ", str(text or "")).lower()
+    normalized = re.sub(r"\s+", " ", str(text or "")).lower()
     for rule in TOPIC_RULES:
         if any(term in normalized for term in rule["terms"]):
             return rule
@@ -580,6 +580,11 @@ def extract_posts(data):
     value = unwrap(data, "posts")
     if isinstance(value, list):
         return value
+    if isinstance(data, dict):
+        for key in ("results", "items"):
+            value = unwrap(data, key)
+            if isinstance(value, list):
+                return value
     if isinstance(data, list):
         return data
     return []
@@ -621,6 +626,7 @@ def maybe_reply_to_our_posts(state, home):
         return state
 
     replied_ids = set(str(x) for x in state.get("replied_comment_ids", []))
+    initial_count = count
     handled_posts = 0
     for activity in activities:
         if not isinstance(activity, dict):
@@ -709,7 +715,7 @@ def maybe_reply_to_our_posts(state, home):
 
     if handled_posts:
         log.info("Reviewed notifications on %s ZombieCash post(s); replied to %s comment(s).",
-                 handled_posts, count - int(state.get("comment_counts", {}).get(day, 0) - (count - int(state.get("comment_counts", {}).get(day, 0)))) if False else count)
+                 handled_posts, count - initial_count)
     return state
 
 def maybe_comment(state):
@@ -761,7 +767,7 @@ def maybe_comment(state):
                 skipped_seen += 1
                 continue
             author = post.get("author") or {}
-            if isinstance(author, dict) and str(author.get("name", "")).lower() == AGENT_NAME.lower():
+            if isinstance(author, dict) and str(author.get("name") or author.get("username") or "").lower() in OWN_AGENT_NAMES:
                 skipped_seen += 1
                 continue
             title_text = str(post.get("title") or "").strip()
@@ -779,7 +785,6 @@ def maybe_comment(state):
             if comment_text in recent_comments:
                 skipped_irrelevant += 1
                 continue
-            topic = _topic_for_text(text)
             engagement = int(post.get("upvotes") or post.get("score") or 0) + 2 * int(post.get("comment_count") or post.get("comments_count") or 0)
             ranked.append((engagement, post, comment_text))
 
