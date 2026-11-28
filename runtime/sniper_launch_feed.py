@@ -971,6 +971,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "shrineTradeInvalidEvents": int(FEED_STATE.get("shrineTradeInvalidEvents", 0)),
                     "shrineTradeLastInvalidReason": FEED_STATE.get("shrineTradeLastInvalidReason"),
                     "shrineTradeLastInvalidContext": FEED_STATE.get("shrineTradeLastInvalidContext"),
+                    "shrinePaperMintTotal": int(FEED_STATE.get("shrinePaperMintTotal", 0)),
+                    "shrinePaperMintsQueued": int(FEED_STATE.get("shrinePaperMintsQueued", 0)),
+                    "shrinePaperMintOffset": int(FEED_STATE.get("shrinePaperMintOffset", 0)),
+                    "shrinePaperMintQueueDrops": int(FEED_STATE.get("shrinePaperMintQueueDrops", 0)),
+                    "shrinePaperMintLastError": FEED_STATE.get("shrinePaperMintLastError"),
                 },
             })
         except Exception:
