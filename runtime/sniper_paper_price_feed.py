@@ -232,6 +232,36 @@ def normalize_geckoterminal_pool_mark(payload, mint: str, observed_at_ms: int | 
     }
 
 
+def geckoterminal_pool_diagnostics(payload, mint: str):
+    """Summarize GeckoTerminal pool coverage without changing mark eligibility."""
+    pools = payload.get("data") if isinstance(payload, dict) and isinstance(payload.get("data"), list) else []
+    matching = 0
+    liquidity_values = []
+    for pool in pools:
+        if not isinstance(pool, dict):
+            continue
+        attrs = pool.get("attributes") if isinstance(pool.get("attributes"), dict) else {}
+        relationships = pool.get("relationships") if isinstance(pool.get("relationships"), dict) else {}
+        base = relationships.get("base_token") if isinstance(relationships.get("base_token"), dict) else {}
+        quote = relationships.get("quote_token") if isinstance(relationships.get("quote_token"), dict) else {}
+        base_data = base.get("data") if isinstance(base.get("data"), dict) else {}
+        quote_data = quote.get("data") if isinstance(quote.get("data"), dict) else {}
+        if not (
+            _geckoterminal_token_id_matches(base_data.get("id"), mint)
+            or _geckoterminal_token_id_matches(quote_data.get("id"), mint)
+        ):
+            continue
+        matching += 1
+        liquidity = _number(attrs.get("reserve_in_usd"))
+        if liquidity is not None:
+            liquidity_values.append(liquidity)
+    return {
+        "pool_count": len(pools),
+        "matching_pool_count": matching,
+        "max_liquidity_usd": max(liquidity_values) if liquidity_values else None,
+    }
+
+
 MAX_TRADE_FEED_MARK_AGE_MS = 120_000
 
 
@@ -644,9 +674,17 @@ async def paper_price_mark_worker(supabase_request, state):
                     for index, mint in enumerate(pool_mints):
                         try:
                             pools = await _fetch_geckoterminal_token_pools(session, mint)
+                            diagnostics = geckoterminal_pool_diagnostics(pools, mint)
                             mark = normalize_geckoterminal_pool_mark(pools, mint)
                             if mark is None:
                                 no_pair += 1
+                                log.info(
+                                    "[Sniper] GeckoTerminal Paper pool lookup has no eligible mark mint=%s pools=%s matching=%s max_liquidity_usd=%s",
+                                    mint,
+                                    diagnostics["pool_count"],
+                                    diagnostics["matching_pool_count"],
+                                    diagnostics["max_liquidity_usd"],
+                                )
                                 continue
                             saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
                             if not saved_ok:
@@ -654,6 +692,13 @@ async def paper_price_mark_worker(supabase_request, state):
                                 log.warning("[Sniper] GeckoTerminal pool mark rejected by Supabase validation")
                             else:
                                 updated += 1
+                                log.info(
+                                    "[Sniper] GeckoTerminal Paper pool mark saved mint=%s pools=%s matching=%s liquidity_usd=%.2f",
+                                    mint,
+                                    diagnostics["pool_count"],
+                                    diagnostics["matching_pool_count"],
+                                    mark["liquidityUsd"],
+                                )
                         except asyncio.CancelledError:
                             raise
                         except Exception as exc:
