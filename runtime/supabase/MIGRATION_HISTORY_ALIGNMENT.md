@@ -10,11 +10,12 @@ This is a source-only alignment against the connected production project's `supa
 
 ## Deliberately left as pending source migrations
 
-These local files differ from the already-applied database statements or have no corresponding applied version, so they are **not** renamed to an applied version:
+The legacy price-scale/reopen migration `20261127185228_sniper_paper_legacy_price_scale_and_reopen.sql` is already recorded as applied in production and remains aligned under its existing version. A read-only check on 2026-11-28 found no remaining rows matching its targeted reopen/supersede predicates.
+
+These local files differ from the already-applied database statements or are new migrations, so they remain pending:
 
 - `20261120140000_sniper_demo_paper_isolation.sql`
 - `20261120143000_sniper_demo_paper_sell_amount.sql`
-- `20261127185228_sniper_paper_legacy_price_scale_and_reopen.sql`
 - `20261128233100_sniper_enforce_entry_social_and_buy_count.sql`
 - `20261128233200_sniper_live_exit_retry_cooldown.sql`
 
