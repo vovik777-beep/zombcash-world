@@ -186,7 +186,13 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 continue
                             packet = "42" + json.dumps(["subscribe_trades", {"mint": mint}], separators=(",", ":"))
                             if not await _safe_ws_send(ws, packet, send_lock):
-                                raise RuntimeError("shrine_websocket_subscribe_send_failed")
+                                feed_state["shrineTradeLastError"] = "subscription_send_disconnected"
+                                log.info("[Sniper] Shrine subscription send lost its WebSocket; reconnecting")
+                                try:
+                                    await ws.close()
+                                except Exception:
+                                    pass
+                                return
                             active[mint] = time.monotonic()
                             feed_state["shrineTradeSubscriptions"] = len(active)
                             feed_state["shrineTradeSubscriptionsSent"] = int(feed_state.get("shrineTradeSubscriptionsSent", 0)) + 1
