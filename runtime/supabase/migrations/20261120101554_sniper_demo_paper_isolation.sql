@@ -44,7 +44,6 @@ begin
   if p_telegram_id is null or not exists (
     select 1 from public.survivor_profiles sp where sp.telegram_id=p_telegram_id
   ) then raise exception 'registered_profile_required'; end if;
-
   return coalesce((
     select pg_catalog.jsonb_agg(q.item order by q.created_at desc)
     from (
@@ -79,7 +78,6 @@ begin
   if p_position is null or pg_catalog.jsonb_typeof(p_position)<>'object' then
     raise exception 'invalid_paper_position';
   end if;
-
   v_id:=coalesce(nullif(p_position->>'id','')::uuid,pg_catalog.gen_random_uuid());
   v_mint:=coalesce(p_position->>'mint','');
   v_symbol:=coalesce(nullif(pg_catalog.left(p_position->>'symbol',24),''),'TOKEN');
@@ -92,7 +90,6 @@ begin
   v_pct:=coalesce(nullif(p_position->>'netPct','')::numeric,0);
   v_status:=p_position->>'status';
   v_exit_reason:=nullif(p_position->>'exitReason','');
-
   if pg_catalog.length(v_mint) not between 32 and 44 or v_mint !~ '^[1-9A-HJ-NP-Za-km-z]+$'
     then raise exception 'invalid_token_mint'; end if;
   if v_buy is null or v_buy<=0 or v_buy>1000 or v_entry is null or v_entry<=0
@@ -103,7 +100,6 @@ begin
   if v_status='closed' and v_exit_reason is null then v_exit_reason:='manual'; end if;
   if v_exit_reason is not null and v_exit_reason not in ('target','stop','manual','stagnant')
     then raise exception 'invalid_paper_exit_reason'; end if;
-
   v_opened_at:=coalesce(
     pg_catalog.to_timestamp(((nullif(p_position->>'openedAt','')::numeric/1000))::double precision),
     pg_catalog.now()
@@ -112,7 +108,6 @@ begin
     then pg_catalog.to_timestamp(((p_position->>'closedAt')::numeric/1000)::double precision)
     else null end;
   if v_status='closed' and v_closed_at is null then raise exception 'closed_paper_position_needs_closed_at'; end if;
-
   insert into sniper.demo_paper_positions(
     id,telegram_id,mint,token_symbol,token_name,buy_amount_sol,entry_price_sol,
     last_price_sol,token_quantity,net_pnl_sol,net_pnl_pct,status,exit_reason,opened_at,closed_at,updated_at
@@ -136,7 +131,6 @@ begin
     'openedAt',(extract(epoch from opened_at)*1000)::bigint,
     'closedAt',case when closed_at is null then null else (extract(epoch from closed_at)*1000)::bigint end
   ) into v_result;
-
   if v_result is null then raise exception 'paper_position_not_owned'; end if;
   delete from sniper.demo_paper_positions p
    where p.telegram_id=p_telegram_id and p.status='closed'
@@ -168,4 +162,3 @@ revoke all on function public.sniper_demo_paper_save(bigint,jsonb) from public,a
 revoke all on function public.sniper_demo_paper_clear(bigint) from public,anon,authenticated;
 grant execute on function public.sniper_demo_paper_list(bigint) to service_role;
 grant execute on function public.sniper_demo_paper_save(bigint,jsonb) to service_role;
-grant execute on function public.sniper_demo_paper_clear(bigint) to service_role;
