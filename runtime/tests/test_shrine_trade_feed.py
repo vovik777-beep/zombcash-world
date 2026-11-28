@@ -118,7 +118,9 @@ class ShrinePaperSubscriptionSelectionTests(unittest.TestCase):
         self.assertEqual(total, 2)
 
     def test_rotates_batches_without_skipping_or_repeating(self):
-        mints = [f"5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozU{i:02d}" for i in range(1, 39)]
+        alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        prefix = MINT[:32]
+        mints = [prefix + alphabet[index // 58] + alphabet[index % 58] for index in range(38)]
         rows = [{"mint": mint} for mint in mints]
         first, offset, total = select_paper_subscription_mints(rows, 0, 20)
         second, offset, total2 = select_paper_subscription_mints(rows, offset, 20)
