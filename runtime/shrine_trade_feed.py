@@ -137,7 +137,8 @@ async def paper_position_subscription_worker(launch_enabled, paper_mint_queue, s
 async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed_state, paper_mint_queue=None):
     """Consume Shrine's free Socket.IO per-token trade channel over Engine.IO WebSocket."""
     backoff = 15
-    paper_mint_queue = paper_mint_queue or asyncio.Queue(maxsize=SHRINE_MAX_ACTIVE_SUBSCRIPTIONS * 2)
+    if paper_mint_queue is None:
+        paper_mint_queue = asyncio.Queue(maxsize=SHRINE_MAX_ACTIVE_SUBSCRIPTIONS * 2)
     while True:
         await launch_enabled.wait()
         active = {}
