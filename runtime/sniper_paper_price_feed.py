@@ -21,7 +21,7 @@ MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
 MAX_LIVE_MINTS_PER_CYCLE = 60
 DEXSCREENER_TOKEN_BATCH_URL = "https://api.dexscreener.com/tokens/v1/solana/{}"
 MIN_LIQUIDITY_USD = 500.0
-MAX_MINTS_PER_CYCLE = 20
+MAX_MINTS_PER_CYCLE = 60  # Covers three Paper profiles with 20 open positions each.
 POLL_INTERVAL_SECONDS = 60.0
 REQUEST_SPACING_SECONDS = 1.1
 
@@ -547,10 +547,20 @@ async def paper_price_mark_worker(supabase_request, state):
             errors = 0
             dex_covered = set()
             async with ClientSession(timeout=timeout) as session:
-                for index, mint in enumerate(mints):
+                # Use DexScreener's multi-token endpoint so every open Paper mint
+                # can be refreshed inside the 90-second database freshness window.
+                try:
+                    pairs_by_mint = await _fetch_token_pairs_batch(session, mints)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    pairs_by_mint = {}
+                    errors += 1
+                    log.warning("[Sniper] DexScreener Paper batch price refresh failed (%s)", type(exc).__name__)
+
+                for mint in mints:
                     try:
-                        pairs = await _fetch_token_pairs(session, mint)
-                        mark = normalize_dexscreener_paper_mark(pairs, mint)
+                        mark = normalize_dexscreener_paper_mark(pairs_by_mint.get(mint, []), mint)
                         if mark is not None:
                             saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
                             if not saved_ok:
@@ -563,9 +573,7 @@ async def paper_price_mark_worker(supabase_request, state):
                         raise
                     except Exception as exc:
                         errors += 1
-                        log.warning("[Sniper] DexScreener Paper price refresh failed (%s)", type(exc).__name__)
-                    if index < len(mints) - 1:
-                        await asyncio.sleep(REQUEST_SPACING_SECONDS)
+                        log.warning("[Sniper] DexScreener Paper price normalization failed (%s)", type(exc).__name__)
 
                 # Batch fallback for tokens without an eligible DexScreener pair.
                 # Jupiter is preferred; GeckoTerminal is a final keyless batch source.
@@ -573,7 +581,7 @@ async def paper_price_mark_worker(supabase_request, state):
                 jupiter_covered = set()
                 if missing_mints:
                     try:
-                        prices = await _fetch_jupiter_prices(session, missing_mints)
+                        prices = await _fetch_jupiter_prices_batched(session, missing_mints)
                         observed_at_ms = int(time.time() * 1000)
                         for mint in missing_mints:
                             mark = normalize_jupiter_paper_mark(prices, mint, observed_at_ms)
