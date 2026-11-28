@@ -138,12 +138,15 @@ def _positive_amount(value: Any, name: str) -> float:
 
 def build_pumpportal_trade_request(
     *, public_key: str, mint: str, side: str, amount: float,
-    max_slippage_bps: int, priority_fee_sol: float,
+    max_slippage_bps: int, priority_fee_sol: float, pool: str = "auto",
 ) -> dict:
     if not MINT_RE.fullmatch(str(mint or "")):
         raise ValueError("invalid_token_mint")
     if side not in {"buy", "sell"}:
         raise ValueError("invalid_trade_side")
+    allowed_pools = {"pump", "pump-amm", "raydium", "raydium-cpmm", "launchlab", "bonk", "auto"}
+    if pool not in allowed_pools:
+        raise ValueError("invalid_trade_pool")
     if not re.fullmatch(r"[1-9A-HJ-NP-Za-km-z]{32,44}", str(public_key or "")):
         raise ValueError("invalid_wallet_public_key")
     amount = _positive_amount(amount, "trade_amount")
@@ -160,7 +163,7 @@ def build_pumpportal_trade_request(
         "denominatedInSol": "true" if side == "buy" else "false",
         "slippage": max_slippage_bps / 100,
         "priorityFee": priority_fee_sol,
-        "pool": "pump",
+        "pool": pool,
     }
 
 
