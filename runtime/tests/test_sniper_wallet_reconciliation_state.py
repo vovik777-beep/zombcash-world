@@ -4,7 +4,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 API = (ROOT / "api_server.py").read_text(encoding="utf-8")
-MIGRATION = (ROOT / "supabase/migrations/20261120100000_sniper_wallet_reconciliation_state_read.sql").read_text(encoding="utf-8")
+MIGRATION = (ROOT / "supabase/migrations/20261120081500_sniper_wallet_reconciliation_state_read.sql").read_text(encoding="utf-8")
 TREE = ast.parse(API)
 FUNCTIONS = {
     node.name: node
