@@ -4121,35 +4121,8 @@ async def _bootstrap_registered_sniper_wallets(application):
         log.error("Sniper wallet bootstrap unavailable (%s)", type(exc).__name__)
 
 
-async def _start_paper_price_feed(application):
-    """Start the bounded Paper-only price refresher with the API lifecycle."""
-    try:
-        from sniper_paper_price_feed import paper_price_mark_worker
-        state = {}
-        application["paper_price_feed_state"] = state
-        application["paper_price_feed_task"] = asyncio.create_task(
-            paper_price_mark_worker(_supabase_request, state),
-            name="sniper-paper-price-feed",
-        )
-        log.info("Sniper Paper price feed worker started")
-    except Exception as exc:
-        # The public API must remain available if this optional background worker cannot start.
-        log.error("Sniper Paper price feed worker could not start (%s)", type(exc).__name__)
-
-
-async def _stop_paper_price_feed(application):
-    task = application.get("paper_price_feed_task")
-    if task is None:
-        return
-    task.cancel()
-    await asyncio.gather(task, return_exceptions=True)
-    log.info("Sniper Paper price feed worker stopped")
-
-
 app = web.Application(middlewares=[cors_middleware], client_max_size=8 * 1024 * 1024)
 app.on_startup.append(_bootstrap_registered_sniper_wallets)
-app.on_startup.append(_start_paper_price_feed)
-app.on_cleanup.append(_stop_paper_price_feed)
 app.router.add_get("/health", health)
 app.router.add_post("/api/assistant/chat", website_assistant_chat)
 app.router.add_get("/api/assistant/status", website_assistant_status)
