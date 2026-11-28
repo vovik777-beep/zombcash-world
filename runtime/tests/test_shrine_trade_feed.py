@@ -2,7 +2,7 @@ import asyncio
 import unittest
 
 from aiohttp import ClientConnectionError
-from shrine_trade_feed import _safe_ws_send, normalize_shrine_trade
+from shrine_trade_feed import _safe_ws_send, normalize_shrine_trade, select_paper_subscription_mints
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
 SOL = "So11111111111111111111111111111111111111112"
@@ -102,6 +102,43 @@ class ShrineTradeNormalizationTests(unittest.TestCase):
         }
         self.assertIsNone(normalize_shrine_trade(base))
         self.assertIsNone(normalize_shrine_trade({**base, "signature": "x", "price": float("nan")}))
+
+
+class ShrinePaperSubscriptionSelectionTests(unittest.TestCase):
+    def test_selects_unique_valid_open_mints(self):
+        rows = [
+            {"mint": MINT},
+            {"mint": MINT},
+            {"mint": "not-a-solana-mint"},
+            {"mint": "7P7F9USPQ332N7QZBs6bwNXsL4AB6riEJtGv5Rxtpump"},
+        ]
+        selected, next_offset, total = select_paper_subscription_mints(rows, 0, 20)
+        self.assertEqual(selected, [MINT, "7P7F9USPQ332N7QZBs6bwNXsL4AB6riEJtGv5Rxtpump"])
+        self.assertEqual(next_offset, 0)
+        self.assertEqual(total, 2)
+
+    def test_rotates_batches_without_skipping_or_repeating(self):
+        alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+        prefix = MINT[:32]
+        mints = [prefix + alphabet[index // 58] + alphabet[index % 58] for index in range(38)]
+        rows = [{"mint": mint} for mint in mints]
+        first, offset, total = select_paper_subscription_mints(rows, 0, 20)
+        second, offset, total2 = select_paper_subscription_mints(rows, offset, 20)
+        self.assertEqual(total, 38)
+        self.assertEqual(total2, 38)
+        self.assertEqual(len(first), 20)
+        self.assertEqual(len(second), 18)
+        self.assertEqual(set(first).intersection(second), set())
+        self.assertEqual(first + second, mints)
+
+    def test_accepts_rpc_rows_as_strings(self):
+        selected, offset, total = select_paper_subscription_mints([MINT], 0, 20)
+        self.assertEqual(selected, [MINT])
+        self.assertEqual(offset, 0)
+        self.assertEqual(total, 1)
+
+    def test_empty_rows_return_empty_selection(self):
+        self.assertEqual(select_paper_subscription_mints([], 17, 20), ([], 0, 0))
 
 
 class FakeWebSocket:
