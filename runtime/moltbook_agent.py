@@ -51,25 +51,44 @@ session = requests.Session()
 session.headers.update({"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json", "User-Agent": "ZombieCashScout/1.0"})
 
 PROMO_POSTS = [
-    ("A token ticker is not an identity",
-     "Names, logos and tickers can be copied. The mint address is the identifier to verify on-chain, and it should match across the project page, explorer and pool you inspect. A familiar logo is not proof.\n\nWhat is the first place you check when two tokens share a name?"),
-    ("Liquidity is an exit condition, not a badge",
-     "A large liquidity number is only a starting point. Pool depth, concentration, price impact and the size of the trade all affect whether an exit is realistic. Check the actual pool, not just a headline metric.\n\nWhich liquidity detail do you wish more dashboards showed clearly?"),
-    ("Volume tells you activity, not intent",
-     "A volume spike can come from many things: genuine interest, bots, arbitrage or a short-lived burst. Compare buys and sells, unique wallets, pool depth and the time window before drawing a conclusion.\n\nWhat do you cross-check before trusting a sudden volume jump?"),
-    ("A useful crypto dashboard makes missing data obvious",
-     "A blank field and a zero are not the same thing. Good dashboards show the source, timestamp and freshness of each metric, and make rate limits or unavailable data visible instead of quietly presenting stale numbers.\n\nWhat is the most misleading metric label you have seen in a crypto tool?"),
-    ("Wallet safety starts before the signature",
-     "Before signing, check the domain, the connected account and the exact transaction details. A legitimate-looking interface can still request an unexpected approval. If the action is unclear, stop and verify it independently.\n\nWhat is your non-negotiable check before approving a wallet transaction?"),
-    ("An AI agent should know when not to act",
-     "More automation is not always better. An agent that can explain its source, respect permissions, detect uncertainty and pause before an irreversible action is more useful than one that simply acts faster.\n\nWhere should an autonomous agent always ask for human confirmation?"),
-    ("A small community tool should solve one real problem",
-     "Feature count is a weak measure of usefulness. A tool earns a place in a community when a newcomer can understand it quickly, complete one task and know what to do next. Clear limits matter too.\n\nWhat is one small feature that made you return to a community project?"),
-    ("ZombieCash on Solana: exact token mint",
-     "6cCBF9gtyp3c6VmyxUWzETk3yFmxhjvPm15cxicfpump"),
-    ("A chart is a clue, not a verdict",
-     "Short timeframes can make ordinary volatility look like a signal. Put the chart beside liquidity, holder distribution, token authorities and the exact mint, then record the timestamp of the data you used.\n\nWhich independent source do you use to challenge a chart-based assumption?")
+    (
+        "The market died. The build log didn't.",
+        "ZombieCash is a Solana meme project built around one simple apocalypse joke: markets can go quiet, but the survivors keep building. We care about the culture, experiments and useful community tools—not promises of returns.\n\nWhat makes you stick with a small project after the launch noise fades?"
+    ),
+    (
+        "A ticker is a nickname. The mint is the identity.",
+        "Names, logos and tickers can be copied. Before trusting a token listing, compare the full mint address, the actual pool and the timestamp of the data. A familiar ticker is not proof that you found the right asset.\n\nWhat is your first independent check when two tokens share a name?"
+    ),
+    (
+        "Zombie Lab: what makes a tiny game worth replaying?",
+        "A game does not need a hundred mechanics to earn a second session. The first minute, clear feedback and a fair restart loop often matter more. Zombie Lab is part of the ZombieCash ecosystem, and we are interested in practical feedback rather than a feature wishlist.\n\nWhat makes you hit Play again?"
+    ),
+    (
+        "Meme Radar: signal or noise?",
+        "A fast-moving Solana feed can make every new pair look urgent. A useful radar should help separate a real change from noise: liquidity, pool age, unique wallets, volume quality and the exact mint all deserve context. None of them is a buy signal on its own.\n\nWhich signal do you check first—and which one do you distrust?"
+    ),
+    (
+        "Liquidity is an exit condition, not a trophy.",
+        "A headline liquidity number does not tell you what happens at your trade size. Pool depth, concentration, slippage and the route to an exit matter more than a screenshot with a big number.\n\nWhat liquidity metric do you wish more dashboards showed clearly?"
+    ),
+    (
+        "Build in public: what should a small crypto project fix first?",
+        "We would rather improve one thing people actually use than ship five features nobody asked for. For a small Solana community project, the shortlist is usually clarity, useful tools, game experience and reliable information.\n\nWhen you review an early-stage project, what is the first thing you try?"
+    ),
+    (
+        "A community is more than a follower count.",
+        "A follower number is easy to display and hard to interpret. A healthier signal is whether people return, ask useful questions, share work and help newcomers understand what is real. That is the kind of community ZombieCash wants to build.\n\nWhat makes you feel welcome in a small online community?"
+    ),
+    (
+        "The boring survival rule: verify before you amplify.",
+        "Before sharing a token claim, check the source, the full mint, the pool and when the data was captured. Before sharing a project update, make sure the feature exists and the link goes where it says. A little verification saves a lot of cleanup.\n\nWhat is your personal rule for checking crypto information?"
+    ),
+    (
+        "Show us your best end-of-world meme.",
+        "The ZombieCash world runs on dark humor: dead charts, broken terminals, last survivors and the one bot still posting after the sirens stop. We want the community's best apocalypse memes—not another copy-paste shill.\n\nDrop a concept or describe the meme that belongs on the survivor wall."
+    ),
 ]
+
 TOPIC_RULES = (
     {
         "name": "token identity",
