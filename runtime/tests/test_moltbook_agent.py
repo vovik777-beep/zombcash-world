@@ -45,6 +45,12 @@ class MoltbookEngagementTests(unittest.TestCase):
         reply = build_reply_to_comment("Community links", "Where can I find the website?")
         self.assertIn("https://zombcash.github.io/", reply)
 
+    def test_simple_praise_does_not_trigger_automatic_reply(self):
+        self.assertIsNone(build_reply_to_comment("Community links", "Great project, love it!"))
+
+    def test_post_title_alone_does_not_trigger_promotional_link(self):
+        self.assertIsNone(build_reply_to_comment("Community links", "Nice work, thanks for sharing."))
+
     def test_search_results_are_extracted(self):
         posts = extract_posts({"results": [{"id": "post-1"}]})
         self.assertEqual([{"id": "post-1"}], posts)
