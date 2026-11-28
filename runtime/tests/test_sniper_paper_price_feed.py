@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, patch
 from sniper_paper_price_feed import (
     SOL_MINT,
     MAX_MINTS_PER_CYCLE,
+    PAPER_POLL_INTERVAL_SECONDS,
+    PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE,
     normalize_dexscreener_paper_mark,
     normalize_jupiter_paper_mark,
     normalize_geckoterminal_paper_mark,
@@ -301,6 +303,8 @@ class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_refreshes_paper_mints_with_batched_dexscreener(self):
         self.assertEqual(MAX_MINTS_PER_CYCLE, 60)
+        self.assertEqual(PAPER_POLL_INTERVAL_SECONDS, 30.0)
+        self.assertEqual(PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE, 2)
         calls = []
 
         async def supabase_request(method, path, *, payload=None, params=None):
