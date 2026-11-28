@@ -24,7 +24,6 @@ $new$;
   v_definition := pg_catalog.replace(v_definition, v_old, v_new);
 
   v_old := $old$
-    -- Early-entry Paper strategy: use the first valid BUY trade price in the user's launch window.
     select t.price_sol,t.event_at,t.trader into v_entry
       from sniper.token_trades t
      where t.mint=p_mint and t.side='buy' and t.price_sol>0
