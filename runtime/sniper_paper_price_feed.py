@@ -442,8 +442,6 @@ async def live_price_mark_worker(supabase_request, state):
 
             updated = 0
             no_pair = 0
-            below_liquidity = 0
-            rejected_pool = 0
             errors = 0
             dex_covered = set()
             async with ClientSession(timeout=timeout) as session:
@@ -589,6 +587,8 @@ async def paper_price_mark_worker(supabase_request, state):
 
             updated = 0
             no_pair = 0
+            below_liquidity = 0
+            rejected_pool = 0
             errors = 0
             dex_covered = set()
             async with ClientSession(timeout=timeout) as session:
