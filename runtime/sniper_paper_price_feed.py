@@ -273,6 +273,14 @@ def classify_gecko_pool_result(diagnostics):
     return "pool_mark_rejected"
 
 
+GECKO_RATE_LIMIT_COOLDOWN_SECONDS = 60
+
+
+def is_gecko_rate_limit_error(exc):
+    """Identify GeckoTerminal HTTP 429 errors without matching unrelated failures."""
+    return "HTTP 429" in str(exc)
+
+
 MAX_TRADE_FEED_MARK_AGE_MS = 120_000
 
 
@@ -674,58 +682,73 @@ async def paper_price_mark_worker(supabase_request, state):
 
                 gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
                 if gecko_mints:
-                    # The simple batch index can omit long-tail Solana tokens. Query token pools
-                    # directly, but cap this to four per minute. The public limit is approximate and may be shared
-                    # with other workloads, so leave headroom for the batch request.
-                    pool_mints, next_offset = select_gecko_pool_mints(
-                        gecko_mints,
-                        state.get("paperPriceFeedGeckoOffset", 0),
-                        PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE,
-                    )
-                    state["paperPriceFeedGeckoOffset"] = next_offset
-                    state["paperPriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
-                    for index, mint in enumerate(pool_mints):
-                        try:
-                            pools = await _fetch_geckoterminal_token_pools(session, mint)
-                            diagnostics = geckoterminal_pool_diagnostics(pools, mint)
-                            mark = normalize_geckoterminal_pool_mark(pools, mint)
-                            if mark is None:
-                                reason = classify_gecko_pool_result(diagnostics)
-                                if reason == "no_pool":
-                                    no_pair += 1
-                                elif reason == "below_liquidity_threshold":
-                                    below_liquidity += 1
+                    retry_after = float(state.get("paperPriceFeedGeckoRetryAfter", 0) or 0)
+                    if time.time() < retry_after:
+                        state["paperPriceFeedGeckoDeferred"] = len(gecko_mints)
+                        log.info(
+                            "[Sniper] GeckoTerminal Paper pool fallback paused after HTTP 429 retry_in=%ss deferred=%s",
+                            max(0, int(retry_after - time.time())),
+                            len(gecko_mints),
+                        )
+                    else:
+                        # The public endpoint is shared with the site's market/history feeds.
+                        # Stop this worker temporarily after a 429 instead of repeating failed calls every cycle.
+                        pool_mints, next_offset = select_gecko_pool_mints(
+                            gecko_mints,
+                            state.get("paperPriceFeedGeckoOffset", 0),
+                            PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE,
+                        )
+                        state["paperPriceFeedGeckoOffset"] = next_offset
+                        state["paperPriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
+                        for index, mint in enumerate(pool_mints):
+                            try:
+                                pools = await _fetch_geckoterminal_token_pools(session, mint)
+                                diagnostics = geckoterminal_pool_diagnostics(pools, mint)
+                                mark = normalize_geckoterminal_pool_mark(pools, mint)
+                                if mark is None:
+                                    reason = classify_gecko_pool_result(diagnostics)
+                                    if reason == "no_pool":
+                                        no_pair += 1
+                                    elif reason == "below_liquidity_threshold":
+                                        below_liquidity += 1
+                                    else:
+                                        rejected_pool += 1
+                                    log.info(
+                                        "[Sniper] GeckoTerminal Paper pool lookup rejected mint=%s reason=%s pools=%s matching=%s max_liquidity_usd=%s",
+                                        mint,
+                                        reason,
+                                        diagnostics["pool_count"],
+                                        diagnostics["matching_pool_count"],
+                                        diagnostics["max_liquidity_usd"],
+                                    )
+                                    continue
+                                saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
+                                if not saved_ok:
+                                    errors += 1
+                                    log.warning("[Sniper] GeckoTerminal pool mark rejected by Supabase validation")
                                 else:
-                                    rejected_pool += 1
-                                log.info(
-                                    "[Sniper] GeckoTerminal Paper pool lookup rejected mint=%s reason=%s pools=%s matching=%s max_liquidity_usd=%s",
-                                    mint,
-                                    reason,
-                                    diagnostics["pool_count"],
-                                    diagnostics["matching_pool_count"],
-                                    diagnostics["max_liquidity_usd"],
-                                )
-                                continue
-                            saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
-                            if not saved_ok:
+                                    updated += 1
+                                    log.info(
+                                        "[Sniper] GeckoTerminal Paper pool mark saved mint=%s pools=%s matching=%s liquidity_usd=%.2f",
+                                        mint,
+                                        diagnostics["pool_count"],
+                                        diagnostics["matching_pool_count"],
+                                        mark["liquidityUsd"],
+                                    )
+                            except asyncio.CancelledError:
+                                raise
+                            except Exception as exc:
                                 errors += 1
-                                log.warning("[Sniper] GeckoTerminal pool mark rejected by Supabase validation")
-                            else:
-                                updated += 1
-                                log.info(
-                                    "[Sniper] GeckoTerminal Paper pool mark saved mint=%s pools=%s matching=%s liquidity_usd=%.2f",
-                                    mint,
-                                    diagnostics["pool_count"],
-                                    diagnostics["matching_pool_count"],
-                                    mark["liquidityUsd"],
-                                )
-                        except asyncio.CancelledError:
-                            raise
-                        except Exception as exc:
-                            errors += 1
-                            log.warning("[Sniper] GeckoTerminal token-pools fallback failed (%s: %s)", type(exc).__name__, str(exc)[:100])
-                        if index < len(pool_mints) - 1:
-                            await asyncio.sleep(REQUEST_SPACING_SECONDS)
+                                if is_gecko_rate_limit_error(exc):
+                                    state["paperPriceFeedGeckoRetryAfter"] = time.time() + GECKO_RATE_LIMIT_COOLDOWN_SECONDS
+                                    log.warning(
+                                        "[Sniper] GeckoTerminal HTTP 429; pausing Paper pool fallback for %ss",
+                                        GECKO_RATE_LIMIT_COOLDOWN_SECONDS,
+                                    )
+                                    break
+                                log.warning("[Sniper] GeckoTerminal token-pools fallback failed (%s: %s)", type(exc).__name__, str(exc)[:100])
+                            if index < len(pool_mints) - 1:
+                                await asyncio.sleep(REQUEST_SPACING_SECONDS)
 
             state["paperPriceFeedStatus"] = "active"
             state["paperPriceFeedMints"] = len(mints)
