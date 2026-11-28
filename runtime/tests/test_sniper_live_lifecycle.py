@@ -192,6 +192,22 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["errorCode"], "insufficient_wallet_sol_balance")
         self.assertFalse(any(path == "rpc/sniper_live_order_wallet_secret" for path, _ in calls))
 
+    async def test_sell_requires_native_sol_for_network_and_priority_fees(self):
+        request, calls = self.make_supabase()
+        async def balance_checker(public_key):
+            return 10_000
+        async def executor(**kwargs):
+            raise AssertionError("executor must not be called without SOL for fees")
+        with patch("sniper_live_lifecycle.live_execution_enabled", return_value=True):
+            result = await submit_live_order(
+                telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="sell",
+                amount=1000, supabase_request=request, executor=executor,
+                balance_checker=balance_checker,
+            )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["errorCode"], "insufficient_wallet_sol_balance")
+        self.assertFalse(any(path == "rpc/sniper_live_order_wallet_secret" for path, _ in calls))
+
     async def test_unknown_execution_is_persisted_and_not_retried(self):
         request, calls = self.make_supabase()
         async def executor(**kwargs):
@@ -240,6 +256,7 @@ class LiveLifecycleTests(unittest.IsolatedAsyncioTestCase):
             result = await submit_live_order(
                 telegram_id=1, client_order_id=ORDER_ID, mint=MINT, side="sell",
                 amount=1000, supabase_request=request, executor=executor,
+                balance_checker=self.balance_ok,
             )
         self.assertEqual(result["status"], "confirmed")
         transitions = [payload["p_status"] for path, payload in calls if path == "rpc/sniper_live_order_transition"]

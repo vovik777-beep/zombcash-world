@@ -2475,8 +2475,14 @@ async def _sniper_live_engine_status(*, check_rpc=False):
     try:
         health = await _supabase_request("POST", "rpc/sniper_live_engine_health", payload={})
         if isinstance(health, dict):
-            database_ready = health.get("ready") is True
             checks = health.get("checks") if isinstance(health.get("checks"), dict) else {}
+            database_ready = (
+                health.get("ready") is True
+                and checks.get("exit_retry") is True
+                and checks.get("exit_attempt_recording") is True
+                and checks.get("entry_buy_count_filter") is True
+                and checks.get("entry_social_filter") is True
+            )
     except Exception as exc:
         checks = {"databaseHealthError": type(exc).__name__}
     if code_ready and global_enabled and check_rpc:

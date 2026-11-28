@@ -129,11 +129,20 @@ async def process_live_exit_positions(
                 errors += 1
                 continue
             previous_exit = str(row.get("last_exit_order_id") or "none")
+            if previous_exit != "none":
+                retry_allowed = await supabase_request(
+                    "POST",
+                    "rpc/sniper_live_exit_retry_allowed",
+                    payload={"p_order_id": previous_exit, "p_cooldown_seconds": 30},
+                )
+                if retry_allowed is not True:
+                    continue
+
             client_order_id = str(uuid.uuid5(
                 uuid.NAMESPACE_URL,
                 f"zombcash-live-exit:{position_id}:{reason}:{previous_exit}",
             ))
-            await submit_order(
+            result = await submit_order(
                 telegram_id=telegram_id,
                 client_order_id=client_order_id,
                 mint=mint,
@@ -141,6 +150,12 @@ async def process_live_exit_positions(
                 amount=quantity,
                 supabase_request=supabase_request,
             )
+            if isinstance(result, dict) and result.get("status") == "failed" and result.get("orderId"):
+                await supabase_request(
+                    "POST",
+                    "rpc/sniper_live_position_note_exit_attempt",
+                    payload={"p_position_id": position_id, "p_order_id": str(result["orderId"])},
+                )
             triggered += 1
         except Exception as exc:
             errors += 1
