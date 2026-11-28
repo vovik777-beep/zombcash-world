@@ -3439,7 +3439,7 @@ async def _auto_post_job_once(context):
                     # Only if the caption alone exceeds Bluesky's limit, shorten at a
                     # word/sentence boundary. Never use the former arbitrary 120/80 chars.
                     caption = original_caption
-                    sentence_candidates = re.split(r"(?<=[.!?])\\s+", caption)
+                    sentence_candidates = re.split(r"(?<=[.!?])\s+", caption)
                     shortened = ""
                     for candidate in sentence_candidates:
                         trial = (shortened + " " + candidate).strip()
