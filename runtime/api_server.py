@@ -4127,7 +4127,8 @@ async def _bootstrap_registered_sniper_wallets(application):
         log.error("Sniper wallet bootstrap unavailable (%s)", type(exc).__name__)
 
 
-app = web.Application(middlewares=[cors_middleware], client_max_size=8 * 1024 * 1024)
+# TV uploads stream up to 250 MiB; allow multipart framing overhead while the TV handler enforces the file cap.
+app = web.Application(middlewares=[cors_middleware], client_max_size=250 * 1024 * 1024 + 64 * 1024)
 app.on_startup.append(_bootstrap_registered_sniper_wallets)
 app.router.add_get("/health", health)
 app.router.add_post("/api/assistant/chat", website_assistant_chat)
