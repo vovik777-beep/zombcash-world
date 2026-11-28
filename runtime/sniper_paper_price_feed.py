@@ -41,6 +41,16 @@ def _number(value):
     return result if math.isfinite(result) else None
 
 
+def select_price_feed_mints(mints, offset=0, limit=MAX_MINTS_PER_CYCLE):
+    """Select a bounded round-robin slice so large open-position sets are not starved."""
+    if not mints:
+        return [], 0
+    count = min(len(mints), max(0, int(limit)))
+    start = int(offset) % len(mints)
+    selected = [mints[(start + index) % len(mints)] for index in range(count)]
+    return selected, (start + count) % len(mints)
+
+
 def normalize_dexscreener_paper_mark(pairs, mint: str, observed_at_ms: int | None = None):
     """Return the most liquid SOL-quoted pair for mint; reject weak or ambiguous markets."""
     if not MINT_RE.fullmatch(str(mint or "")) or not isinstance(pairs, list):
@@ -322,8 +332,19 @@ async def paper_price_mark_worker(supabase_request, state):
             if not mints:
                 state["paperPriceFeedStatus"] = "waiting_for_open_positions"
                 state["paperPriceFeedMints"] = 0
+                state["paperPriceFeedTotalMints"] = 0
+                state["paperPriceFeedMintOffset"] = 0
                 await asyncio.sleep(30)
                 continue
+
+            total_mints = len(mints)
+            mints, next_offset = select_price_feed_mints(
+                mints,
+                state.get("paperPriceFeedMintOffset", 0),
+                MAX_MINTS_PER_CYCLE,
+            )
+            state["paperPriceFeedMintOffset"] = next_offset
+            state["paperPriceFeedTotalMints"] = total_mints
 
             updated = 0
             live_marked = 0
