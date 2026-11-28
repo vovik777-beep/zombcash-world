@@ -43,7 +43,11 @@ class SniperLiveExitRetryMigrationTests(unittest.TestCase):
 
         self.assertIn("as exit_retry", migration)
         self.assertIn("as exit_attempt_recording", migration)
-        self.assertIn("and exit_retry and exit_attempt_recording", migration)
+        self.assertIn("as entry_buy_count_filter", migration)
+        self.assertIn("as entry_social_filter", migration)
+        self.assertIn("and exit_retry and exit_attempt_recording and entry_buy_count_filter and entry_social_filter", migration)
+        self.assertIn('checks.get("entry_buy_count_filter") is True', api)
+        self.assertIn('checks.get("entry_social_filter") is True', api)
         self.assertIn('checks.get("exit_retry") is True', api)
         self.assertIn('checks.get("exit_attempt_recording") is True', api)
 
