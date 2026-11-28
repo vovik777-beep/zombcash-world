@@ -5,6 +5,7 @@ import logging
 import math
 import re
 import time
+from datetime import datetime, timezone
 
 from aiohttp import ClientSession, ClientTimeout
 
@@ -16,6 +17,9 @@ JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 GECKOTERMINAL_SIMPLE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{}"
 GECKOTERMINAL_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{}/pools"
 MAX_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
+MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
+MAX_LIVE_MINTS_PER_CYCLE = 60
+DEXSCREENER_TOKEN_BATCH_URL = "https://api.dexscreener.com/tokens/v1/solana/{}"
 MIN_LIQUIDITY_USD = 500.0
 MAX_MINTS_PER_CYCLE = 20
 POLL_INTERVAL_SECONDS = 60.0
@@ -283,6 +287,46 @@ async def _fetch_token_pairs(session: ClientSession, mint: str):
     return payload if isinstance(payload, list) else []
 
 
+async def _fetch_token_pairs_batch(session: ClientSession, mints: list[str]):
+    """Fetch DexScreener pairs in bounded batches of up to 30 mints."""
+    result = {mint: [] for mint in mints}
+    unique = list(dict.fromkeys(mints))
+    for offset in range(0, len(unique), 30):
+        batch = unique[offset:offset + 30]
+        url = DEXSCREENER_TOKEN_BATCH_URL.format(",".join(batch))
+        async with session.get(
+            url,
+            headers={"Accept": "application/json", "User-Agent": "ZombieCash-LivePrice/1.0"},
+        ) as response:
+            if response.status != 200:
+                raise RuntimeError(f"DexScreener batch HTTP {response.status}")
+            payload = await response.json(content_type=None)
+        batch_set = set(batch)
+        for pair in payload if isinstance(payload, list) else []:
+            if not isinstance(pair, dict) or pair.get("chainId") != "solana":
+                continue
+            base = pair.get("baseToken") if isinstance(pair.get("baseToken"), dict) else {}
+            quote = pair.get("quoteToken") if isinstance(pair.get("quoteToken"), dict) else {}
+            for address in (str(base.get("address") or ""), str(quote.get("address") or "")):
+                if address in batch_set:
+                    result[address].append(pair)
+        if offset + 30 < len(unique):
+            await asyncio.sleep(REQUEST_SPACING_SECONDS)
+    return result
+
+
+async def _fetch_jupiter_prices_batched(session: ClientSession, mints: list[str]):
+    """Fetch all live-position prices without truncating Jupiter's 50-id request limit."""
+    combined = {}
+    unique = list(dict.fromkeys(mints))
+    for offset in range(0, len(unique), 49):
+        batch = unique[offset:offset + 49]
+        combined.update(await _fetch_jupiter_prices(session, batch))
+        if offset + 49 < len(unique):
+            await asyncio.sleep(REQUEST_SPACING_SECONDS)
+    return combined
+
+
 async def _save_price_mark(supabase_request, mark):
     """Persist a validated mark for Paper positions only."""
     saved = await supabase_request(
@@ -293,6 +337,173 @@ async def _save_price_mark(supabase_request, mark):
     if not isinstance(saved, dict) or saved.get("ok") is not True:
         return False, False
     return True, False
+
+
+async def _save_live_price_mark(supabase_request, mark):
+    """Update open Live-position valuation from a validated SOL price mark."""
+    if not isinstance(mark, dict):
+        return 0
+    mint = str(mark.get("mint") or "")
+    price_sol = _number(mark.get("priceSol"))
+    observed_at_ms = _number(mark.get("observedAt"))
+    if not MINT_RE.fullmatch(mint) or price_sol is None or price_sol <= 0:
+        return 0
+    if observed_at_ms is None or observed_at_ms <= 0:
+        return 0
+    observed_at = datetime.fromtimestamp(int(observed_at_ms) / 1000, tz=timezone.utc).isoformat()
+    result = await supabase_request(
+        "POST",
+        "rpc/sniper_live_position_mark",
+        payload={"p_mint": mint, "p_price_sol": price_sol, "p_observed_at": observed_at},
+    )
+    try:
+        return max(0, int(result or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+async def live_price_mark_worker(supabase_request, state):
+    """Refresh open Live-position marks; it never signs, submits, or broadcasts trades."""
+    timeout = ClientTimeout(total=12, connect=5)
+    while True:
+        try:
+            rows = await supabase_request(
+                "POST",
+                "rpc/sniper_open_live_position_mints",
+                payload={},
+            )
+            mints = []
+            seen = set()
+            if isinstance(rows, list):
+                for row in rows:
+                    mint = str(row.get("mint") or "").strip() if isinstance(row, dict) else ""
+                    if MINT_RE.fullmatch(mint) and mint not in seen:
+                        seen.add(mint)
+                        mints.append(mint)
+            if not mints:
+                state["livePriceFeedStatus"] = "waiting_for_open_positions"
+                state["livePriceFeedMints"] = 0
+                state["livePriceFeedTotalMints"] = 0
+                state["livePriceFeedMintOffset"] = 0
+                await asyncio.sleep(30)
+                continue
+
+            total_mints = len(mints)
+            mints, next_offset = select_price_feed_mints(
+                mints,
+                state.get("livePriceFeedMintOffset", 0),
+                MAX_LIVE_MINTS_PER_CYCLE,
+            )
+            state["livePriceFeedMintOffset"] = next_offset
+            state["livePriceFeedTotalMints"] = total_mints
+
+            updated = 0
+            no_pair = 0
+            errors = 0
+            dex_covered = set()
+            async with ClientSession(timeout=timeout) as session:
+                pair_map = {}
+                try:
+                    pair_map = await _fetch_token_pairs_batch(session, mints)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    errors += 1
+                    log.warning("[Sniper] Live DexScreener batch lookup failed (%s)", type(exc).__name__)
+
+                for mint in mints:
+                    mark = normalize_dexscreener_paper_mark(pair_map.get(mint, []), mint)
+                    if mark is None:
+                        continue
+                    dex_covered.add(mint)
+                    try:
+                        updated += await _save_live_price_mark(supabase_request, mark)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] Live DexScreener mark update failed (%s)", type(exc).__name__)
+
+                missing_mints = [mint for mint in mints if mint not in dex_covered]
+                jupiter_covered = set()
+                if missing_mints:
+                    try:
+                        prices = await _fetch_jupiter_prices_batched(session, missing_mints)
+                        observed_at_ms = int(time.time() * 1000)
+                        for mint in missing_mints:
+                            mark = normalize_jupiter_paper_mark(prices, mint, observed_at_ms)
+                            if mark is None:
+                                continue
+                            jupiter_covered.add(mint)
+                            updated += await _save_live_price_mark(supabase_request, mark)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] Live Jupiter price fallback failed (%s)", type(exc).__name__)
+
+                trade_covered = set()
+                trade_mints = [mint for mint in missing_mints if mint not in jupiter_covered]
+                for mint in trade_mints:
+                    try:
+                        latest_trade = await supabase_request(
+                            "POST",
+                            "rpc/sniper_trade_latest",
+                            payload={"p_mint": mint},
+                        )
+                        mark = normalize_trade_feed_paper_mark(latest_trade, mint)
+                        if mark is None:
+                            continue
+                        trade_covered.add(mint)
+                        updated += await _save_live_price_mark(supabase_request, mark)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] Live trade-feed price fallback failed (%s)", type(exc).__name__)
+
+                gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
+                if gecko_mints:
+                    pool_mints, next_offset = select_gecko_pool_mints(
+                        gecko_mints,
+                        state.get("livePriceFeedGeckoOffset", 0),
+                        MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE,
+                    )
+                    state["livePriceFeedGeckoOffset"] = next_offset
+                    state["livePriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
+                    for index, mint in enumerate(pool_mints):
+                        try:
+                            pools = await _fetch_geckoterminal_token_pools(session, mint)
+                            mark = normalize_geckoterminal_pool_mark(pools, mint)
+                            if mark is None:
+                                no_pair += 1
+                                continue
+                            updated += await _save_live_price_mark(supabase_request, mark)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            errors += 1
+                            log.warning("[Sniper] Live GeckoTerminal pool fallback failed (%s)", type(exc).__name__)
+                        if index < len(pool_mints) - 1:
+                            await asyncio.sleep(REQUEST_SPACING_SECONDS)
+
+            state["livePriceFeedStatus"] = "active"
+            state["livePriceFeedMints"] = len(mints)
+            state["livePriceFeedUpdated"] = updated
+            state["livePriceFeedNoPair"] = no_pair
+            state["livePriceFeedErrors"] = errors
+            state["livePriceFeedLastAt"] = int(time.time() * 1000)
+            log.info(
+                "[Sniper] Live price refresh complete: checked=%s updated=%s no_pair=%s errors=%s",
+                len(mints), updated, no_pair, errors,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            state["livePriceFeedStatus"] = "error"
+            state["livePriceFeedError"] = type(exc).__name__
+            log.warning("[Sniper] Live price feed cycle failed (%s)", type(exc).__name__)
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
 
 async def paper_price_mark_worker(supabase_request, state):
