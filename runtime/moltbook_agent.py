@@ -770,7 +770,9 @@ def maybe_reply_to_our_posts(state, home):
         write_state(state)
 
         if deferred:
-            continue
+            # Stop the entire pass after a reply attempt or verification failure;
+            # continuing to another post could exceed the one-comment-per-cycle limit.
+            break
 
         # Mark read only after the fetched thread has been completely reviewed.
         try:
