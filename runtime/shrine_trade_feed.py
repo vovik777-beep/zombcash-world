@@ -12,6 +12,9 @@ from aiohttp import ClientConnectionError, ClientSession, ClientTimeout, WSMsgTy
 log = logging.getLogger("zombcash.sniper.shrine")
 SOL_MINT = "So11111111111111111111111111111111111111112"
 MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
+SHRINE_MAX_ACTIVE_SUBSCRIPTIONS = 20
+SHRINE_SUBSCRIPTION_TTL_SECONDS = 30
+PAPER_SUBSCRIPTION_REFRESH_SECONDS = 30
 
 
 def normalize_shrine_trade(payload, quote_mint=None):
@@ -78,9 +81,63 @@ async def _safe_ws_send(ws, payload, send_lock):
         return False
 
 
-async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed_state):
+def select_paper_subscription_mints(rows, offset=0, limit=SHRINE_MAX_ACTIVE_SUBSCRIPTIONS):
+    """Select a fair rotating batch of unique open Paper mints from the DB RPC rows."""
+    mints = []
+    seen = set()
+    for row in rows if isinstance(rows, list) else []:
+        mint = str(row.get("mint") or "").strip() if isinstance(row, dict) else str(row or "").strip()
+        if MINT_RE.fullmatch(mint) and mint not in seen:
+            seen.add(mint)
+            mints.append(mint)
+    if not mints:
+        return [], 0, 0
+    start = int(offset or 0) % len(mints)
+    selected = [mints[(start + index) % len(mints)] for index in range(min(max(1, int(limit)), len(mints)))]
+    return selected, (start + len(selected)) % len(mints), len(mints)
+
+
+async def paper_position_subscription_worker(launch_enabled, paper_mint_queue, supabase_request, feed_state):
+    """Continuously rotate Shrine's free subscription slots across open Paper positions."""
+    offset = 0
+    while True:
+        await launch_enabled.wait()
+        try:
+            rows = await supabase_request("POST", "rpc/sniper_open_paper_position_mints", payload={})
+            selected, offset, total = select_paper_subscription_mints(rows, offset)
+            # Replace stale queued batches instead of accumulating duplicate mints.
+            while True:
+                try:
+                    paper_mint_queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    break
+            queued_at = int(time.time() * 1000)
+            for mint in selected:
+                try:
+                    paper_mint_queue.put_nowait((mint, queued_at))
+                except asyncio.QueueFull:
+                    feed_state["shrinePaperMintQueueDrops"] = int(feed_state.get("shrinePaperMintQueueDrops", 0)) + 1
+                    break
+            feed_state["shrinePaperMintTotal"] = total
+            feed_state["shrinePaperMintsQueued"] = len(selected)
+            feed_state["shrinePaperMintOffset"] = offset
+            if selected:
+                log.info(
+                    "[Sniper] Shrine prioritizing open Paper positions: queued=%s total=%s next_offset=%s",
+                    len(selected), total, offset,
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            feed_state["shrinePaperMintLastError"] = type(exc).__name__
+            log.warning("[Sniper] Could not refresh Shrine Paper-position subscriptions (%s)", type(exc).__name__)
+        await asyncio.sleep(PAPER_SUBSCRIPTION_REFRESH_SECONDS)
+
+
+async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed_state, paper_mint_queue=None):
     """Consume Shrine's free Socket.IO per-token trade channel over Engine.IO WebSocket."""
     backoff = 15
+    paper_mint_queue = paper_mint_queue or asyncio.Queue(maxsize=SHRINE_MAX_ACTIVE_SUBSCRIPTIONS * 2)
     while True:
         await launch_enabled.wait()
         active = {}
@@ -163,10 +220,15 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
 
                     async def subscribe_dispatcher():
                         while launch_enabled.is_set() and not ws.closed:
+                            queue_used = paper_mint_queue
                             try:
-                                mint, queued_at = await asyncio.wait_for(mint_queue.get(), timeout=2)
-                            except asyncio.TimeoutError:
-                                continue
+                                mint, queued_at = paper_mint_queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                queue_used = mint_queue
+                                try:
+                                    mint, queued_at = await asyncio.wait_for(mint_queue.get(), timeout=2)
+                                except asyncio.TimeoutError:
+                                    continue
                             now_ms = int(time.time() * 1000)
                             if now_ms - queued_at >= 60_000:
                                 feed_state["shrineTradeQueueExpired"] = int(feed_state.get("shrineTradeQueueExpired", 0)) + 1
@@ -176,10 +238,10 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 continue
                             if mint in active:
                                 continue
-                            if len(active) >= 20:
+                            if len(active) >= SHRINE_MAX_ACTIVE_SUBSCRIPTIONS:
                                 feed_state["shrineTradeQueueDeferred"] = int(feed_state.get("shrineTradeQueueDeferred", 0)) + 1
                                 try:
-                                    mint_queue.put_nowait((mint, queued_at))
+                                    queue_used.put_nowait((mint, queued_at))
                                 except asyncio.QueueFull:
                                     feed_state["shrineTradeQueueDrops"] = int(feed_state.get("shrineTradeQueueDrops", 0)) + 1
                                 await asyncio.sleep(0.5)
@@ -205,7 +267,7 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                                 task.add_done_callback(metadata_tasks.discard)
                             async def expire(target):
                                 try:
-                                    await asyncio.sleep(60)
+                                    await asyncio.sleep(SHRINE_SUBSCRIPTION_TTL_SECONDS)
                                     if target not in active:
                                         return
                                     active.pop(target, None)
