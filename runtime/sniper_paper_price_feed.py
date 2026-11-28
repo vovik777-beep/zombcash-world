@@ -16,7 +16,7 @@ DEXSCREENER_TOKEN_PAIRS_URL = "https://api.dexscreener.com/token-pairs/v1/solana
 JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 GECKOTERMINAL_SIMPLE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{}"
 GECKOTERMINAL_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{}/pools"
-MAX_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
+MAX_GECKO_POOL_LOOKUPS_PER_CYCLE = 7
 MIN_LIQUIDITY_USD = 500.0
 MAX_MINTS_PER_CYCLE = 20
 POLL_INTERVAL_SECONDS = 60.0
@@ -430,8 +430,8 @@ async def paper_price_mark_worker(supabase_request, state):
                 gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
                 if gecko_mints:
                     # The simple batch index can omit long-tail Solana tokens. Query token pools
-                    # directly, but cap this to four per minute to stay comfortably below the
-                    # public GeckoTerminal rate limit even when the open-position set grows.
+                    # directly, but cap this to seven per minute. The public docs describe approximately 10 calls/minute;
+                    # one batch request may also run, so keep deliberate headroom.
                     pool_mints, next_offset = select_gecko_pool_mints(
                         gecko_mints,
                         state.get("paperPriceFeedGeckoOffset", 0),
