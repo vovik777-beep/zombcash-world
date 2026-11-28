@@ -161,11 +161,11 @@ class MoltbookEngagementTests(unittest.TestCase):
                 return comments_response
             return {"success": True, "comment": {"id": "reply-1"}}
 
-        with patch.object(agent, "COMMENTING_ENABLED", True), \\
-             patch.object(agent, "MAX_COMMENTS_PER_DAY", 2), \\
-             patch.object(agent, "COMMENT_INTERVAL", 7200), \\
-             patch.object(agent, "api", side_effect=fake_api), \\
-             patch.object(agent, "write_state"), \\
+        with patch.object(agent, "COMMENTING_ENABLED", True), \
+             patch.object(agent, "MAX_COMMENTS_PER_DAY", 2), \
+             patch.object(agent, "COMMENT_INTERVAL", 7200), \
+             patch.object(agent, "api", side_effect=fake_api), \
+             patch.object(agent, "write_state"), \
              patch.object(agent, "notify_telegram_activity"):
             maybe_reply_to_our_posts(state, home)
 
