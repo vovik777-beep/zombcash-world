@@ -18,15 +18,29 @@ WALLET = "11111111111111111111111111111111"
 
 
 class SniperExecutionTests(unittest.TestCase):
-    def test_buy_request_uses_sol_amount_and_pump_bonding_curve(self):
+    def test_buy_request_uses_sol_amount_and_auto_routes_to_current_pool(self):
         payload = build_pumpportal_trade_request(
             public_key=WALLET, mint=MINT, side="buy", amount=0.01,
             max_slippage_bps=300, priority_fee_sol=0.00005,
         )
         self.assertEqual(payload["action"], "buy")
         self.assertEqual(payload["denominatedInSol"], "true")
-        self.assertEqual(payload["pool"], "pump")
+        self.assertEqual(payload["pool"], "auto")
         self.assertEqual(payload["slippage"], 3.0)
+
+    def test_builder_accepts_explicit_supported_pool(self):
+        payload = build_pumpportal_trade_request(
+            public_key=WALLET, mint=MINT, side="sell", amount=1000,
+            max_slippage_bps=500, priority_fee_sol=0, pool="pump-amm",
+        )
+        self.assertEqual(payload["pool"], "pump-amm")
+
+    def test_builder_rejects_unknown_pool(self):
+        with self.assertRaises(ValueError):
+            build_pumpportal_trade_request(
+                public_key=WALLET, mint=MINT, side="buy", amount=0.01,
+                max_slippage_bps=300, priority_fee_sol=0, pool="unknown-dex",
+            )
 
     def test_sell_request_uses_token_amount(self):
         payload = build_pumpportal_trade_request(
