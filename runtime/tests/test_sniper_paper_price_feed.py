@@ -12,6 +12,7 @@ from sniper_paper_price_feed import (
     normalize_geckoterminal_paper_mark,
     normalize_geckoterminal_pool_mark,
     geckoterminal_pool_diagnostics,
+    classify_gecko_pool_result,
     normalize_trade_feed_paper_mark,
     paper_price_mark_worker,
     select_gecko_pool_mints,
@@ -234,6 +235,20 @@ class PaperPriceFeedTests(unittest.TestCase):
             "matching_pool_count": 0,
             "max_liquidity_usd": None,
         })
+
+    def test_gecko_pool_result_classifies_no_pool_low_liquidity_and_rejected_mark(self):
+        self.assertEqual(classify_gecko_pool_result({
+            "matching_pool_count": 0, "max_liquidity_usd": None,
+        }), "no_pool")
+        self.assertEqual(classify_gecko_pool_result({
+            "matching_pool_count": 2, "max_liquidity_usd": 499.99,
+        }), "below_liquidity_threshold")
+        self.assertEqual(classify_gecko_pool_result({
+            "matching_pool_count": 1, "max_liquidity_usd": 800,
+        }), "pool_mark_rejected")
+        self.assertEqual(classify_gecko_pool_result({
+            "matching_pool_count": 1, "max_liquidity_usd": None,
+        }), "pool_mark_rejected")
 
     def test_trade_feed_mark_accepts_recent_valid_sol_trade(self):
         now_ms = 1_800_000_000_000
