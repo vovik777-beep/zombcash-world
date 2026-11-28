@@ -13,6 +13,31 @@ from sniper_live_lifecycle import submit_live_order
 
 log = logging.getLogger("zombcash.sniper.live_engine")
 
+LIVE_ENTRY_DATABASE_CHECKS = (
+    "fill_ledger", "wallet_bound_orders", "cost_basis", "movement_tracking",
+    "order_prepare", "order_transition", "order_wallet_secret", "fill_accounting",
+    "price_marking", "fill_reconciliation", "unknown_order_reconciliation",
+    "entry_candidates", "exit_monitoring", "exit_retry", "exit_attempt_recording",
+    "entry_buy_count_filter", "entry_social_filter",
+)
+LIVE_EXIT_DATABASE_CHECKS = (
+    "fill_ledger", "wallet_bound_orders", "cost_basis", "movement_tracking",
+    "order_prepare", "order_transition", "order_wallet_secret", "fill_accounting",
+    "price_marking", "fill_reconciliation", "unknown_order_reconciliation",
+    "exit_monitoring", "exit_retry", "exit_attempt_recording",
+)
+
+
+async def _live_database_missing_checks(supabase_request, required_checks):
+    """Fail closed unless the deployed database supports the required Live lifecycle."""
+    try:
+        health = await supabase_request("POST", "rpc/sniper_live_engine_health", payload={})
+    except Exception as exc:
+        log.warning("[Sniper] Live database readiness lookup failed (%s)", type(exc).__name__)
+        return list(required_checks)
+    checks = health.get("checks") if isinstance(health, dict) and isinstance(health.get("checks"), dict) else {}
+    return [name for name in required_checks if checks.get(name) is not True]
+
 
 def _parse_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
@@ -169,12 +194,17 @@ async def live_entry_worker(supabase_request, state) -> None:
             if not live_execution_ready() or not live_execution_enabled():
                 state["liveEntryStatus"] = "locked"
             else:
-                result = await process_live_entry_candidates(supabase_request)
-                state["liveEntryStatus"] = "active"
-                state["liveEntryLastAt"] = int(time.time() * 1000)
-                state["liveEntryLastSweep"] = result
-                if result["checked"]:
-                    log.info("[Sniper] Live entry sweep checked=%s confirmed=%s failed=%s errors=%s", result["checked"], result["confirmed"], result["failed"], result["errors"])
+                missing = await _live_database_missing_checks(supabase_request, LIVE_ENTRY_DATABASE_CHECKS)
+                state["liveEntryMissingDatabaseChecks"] = missing
+                if missing:
+                    state["liveEntryStatus"] = "locked_database_migrations"
+                else:
+                    result = await process_live_entry_candidates(supabase_request)
+                    state["liveEntryStatus"] = "active"
+                    state["liveEntryLastAt"] = int(time.time() * 1000)
+                    state["liveEntryLastSweep"] = result
+                    if result["checked"]:
+                        log.info("[Sniper] Live entry sweep checked=%s confirmed=%s failed=%s errors=%s", result["checked"], result["confirmed"], result["failed"], result["errors"])
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -190,12 +220,17 @@ async def live_exit_worker(supabase_request, state) -> None:
             if not live_execution_ready() or not live_execution_enabled():
                 state["liveExitStatus"] = "locked"
             else:
-                result = await process_live_exit_positions(supabase_request)
-                state["liveExitStatus"] = "active"
-                state["liveExitLastAt"] = int(time.time() * 1000)
-                state["liveExitLastSweep"] = result
-                if result["triggered"]:
-                    log.info("[Sniper] Live exit sweep checked=%s triggered=%s stale=%s errors=%s", result["checked"], result["triggered"], result["stale"], result["errors"])
+                missing = await _live_database_missing_checks(supabase_request, LIVE_EXIT_DATABASE_CHECKS)
+                state["liveExitMissingDatabaseChecks"] = missing
+                if missing:
+                    state["liveExitStatus"] = "locked_database_migrations"
+                else:
+                    result = await process_live_exit_positions(supabase_request)
+                    state["liveExitStatus"] = "active"
+                    state["liveExitLastAt"] = int(time.time() * 1000)
+                    state["liveExitLastSweep"] = result
+                    if result["triggered"]:
+                        log.info("[Sniper] Live exit sweep checked=%s triggered=%s stale=%s errors=%s", result["checked"], result["triggered"], result["stale"], result["errors"])
         except asyncio.CancelledError:
             raise
         except Exception as exc:
