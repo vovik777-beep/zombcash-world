@@ -12,6 +12,7 @@ from sniper_paper_price_feed import (
     normalize_geckoterminal_paper_mark,
     normalize_geckoterminal_pool_mark,
     geckoterminal_pool_diagnostics,
+    geckoterminal_pools_by_mint,
     classify_gecko_pool_result,
     is_gecko_rate_limit_error,
     normalize_trade_feed_paper_mark,
@@ -237,6 +238,49 @@ class PaperPriceFeedTests(unittest.TestCase):
             "max_liquidity_usd": None,
         })
 
+    def test_geckoterminal_multi_token_response_splits_top_pools_by_mint(self):
+        mint_a = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
+        mint_b = "6qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
+        pool_a = {
+            "id": "solana_pool_a",
+            "type": "pool",
+            "attributes": {
+                "address": "7qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump",
+                "base_token_price_native_currency": "0.01",
+                "reserve_in_usd": "1200",
+            },
+            "relationships": {
+                "base_token": {"data": {"id": f"solana_{mint_a}", "type": "token"}},
+                "quote_token": {"data": {"id": f"solana_{SOL_MINT}", "type": "token"}},
+            },
+        }
+        pool_b = {
+            "id": "solana_pool_b",
+            "type": "pool",
+            "attributes": {
+                "address": "8qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump",
+                "quote_token_price_native_currency": "0.02",
+                "reserve_in_usd": "900",
+            },
+            "relationships": {
+                "base_token": {"data": {"id": f"solana_{SOL_MINT}", "type": "token"}},
+                "quote_token": {"data": {"id": f"solana_{mint_b}", "type": "token"}},
+            },
+        }
+        payload = {
+            "data": [
+                {"attributes": {"address": mint_a}, "relationships": {"top_pools": {"data": [{"id": "solana_pool_a"}]}}},
+                {"attributes": {"address": mint_b}, "relationships": {"top_pools": {"data": [{"id": "solana_pool_b"}]}}},
+            ],
+            "included": [pool_a, pool_b],
+        }
+        split = geckoterminal_pools_by_mint(payload, [mint_a, mint_b])
+        self.assertEqual(split[mint_a]["data"], [pool_a])
+        self.assertEqual(split[mint_b]["data"], [pool_b])
+        self.assertIsNotNone(normalize_geckoterminal_pool_mark(split[mint_a], mint_a))
+        self.assertIsNotNone(normalize_geckoterminal_pool_mark(split[mint_b], mint_b))
+        self.assertEqual(geckoterminal_pools_by_mint({}, [mint_a])[mint_a], {"data": []})
+
     def test_gecko_rate_limit_detection_is_specific(self):
         self.assertTrue(is_gecko_rate_limit_error(RuntimeError("GeckoTerminal token pools HTTP 429")))
         self.assertFalse(is_gecko_rate_limit_error(RuntimeError("GeckoTerminal token pools HTTP 500")))
@@ -363,7 +407,7 @@ class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
     async def test_refreshes_paper_mints_with_batched_dexscreener(self):
         self.assertEqual(MAX_MINTS_PER_CYCLE, 60)
         self.assertEqual(PAPER_POLL_INTERVAL_SECONDS, 30.0)
-        self.assertEqual(PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE, 1)
+        self.assertEqual(PAPER_GECKO_POOL_BATCH_SIZE, 30)
         calls = []
 
         async def supabase_request(method, path, *, payload=None, params=None):
