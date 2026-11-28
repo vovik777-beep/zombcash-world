@@ -390,7 +390,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
             if configured_api_key and not api_key:
                 log.info(
                     "[Sniper] PumpDev free-key quota is exhausted; using anonymous free tier "
-                    "until 2026-12-20 UTC (4 live trade subscriptions)",
+                    "until 2026-12-20 UTC (5 live trade subscriptions)",
                 )
             try:
                 # Hold active tokens while they are producing trades, but rotate

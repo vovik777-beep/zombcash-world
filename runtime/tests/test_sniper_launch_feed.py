@@ -149,6 +149,8 @@ class SniperLaunchFeedTests(unittest.TestCase):
         self.assertIn("wss://pumpdev.io/ws", source)
         self.assertIn("subscribeNewToken", source)
         self.assertIn("subscribeTokenTrade", source)
+        self.assertIn("5 live trade subscriptions", source)
+        self.assertNotIn("4 live trade subscriptions", source)
         self.assertNotIn("/api/trade", source)
         self.assertIn('"pumpdevStatus": "connected_anonymous"', source)
         self.assertIn('"pumpdevStatus": "connected" if status == "ok" else "connected_free"', source)
