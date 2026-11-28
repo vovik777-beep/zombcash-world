@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 
 from aiohttp import ClientSession, ClientTimeout, WSMsgType, web
 from helius_standard_ws import helius_trade_worker
-from sniper_paper_price_feed import paper_price_mark_worker
+from sniper_paper_price_feed import live_price_mark_worker, paper_price_mark_worker
 from sniper_live_lifecycle import live_fill_reconciliation_worker
 from sniper_live_engine import live_entry_worker, live_exit_worker
 from shrine_trade_feed import shrine_trade_worker
@@ -46,6 +46,14 @@ FEED_STATE = {
     "paperPriceFeedErrors": 0,
     "paperPriceFeedLastAt": None,
     "paperPriceFeedError": None,
+    "livePriceFeedStatus": "starting",
+    "livePriceFeedMints": 0,
+    "livePriceFeedTotalMints": 0,
+    "livePriceFeedUpdated": 0,
+    "livePriceFeedNoPair": 0,
+    "livePriceFeedErrors": 0,
+    "livePriceFeedLastAt": None,
+    "livePriceFeedError": None,
     "liveFillReconcilerStatus": "starting",
     "liveFillReconcilerLastAt": None,
     "liveFillReconcilerLastSweep": None,
@@ -807,6 +815,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         application["sniper_paper_price_feed_task"] = asyncio.create_task(
             paper_price_mark_worker(supabase_request, FEED_STATE)
         )
+        application["sniper_live_price_feed_task"] = asyncio.create_task(
+            live_price_mark_worker(supabase_request, FEED_STATE)
+        )
         application["sniper_live_fill_reconciler_task"] = asyncio.create_task(
             live_fill_reconciliation_worker(supabase_request, FEED_STATE)
         )
@@ -828,10 +839,11 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
         watchdog_task = application.get("sniper_paper_watchdog_task")
         helius_task = application.get("helius_trade_feed_task")
         price_task = application.get("sniper_paper_price_feed_task")
+        live_price_task = application.get("sniper_live_price_feed_task")
         fill_reconciler_task = application.get("sniper_live_fill_reconciler_task")
         live_entry_task = application.get("sniper_live_entry_task")
         live_exit_task = application.get("sniper_live_exit_task")
-        for running_task in (task, trade_task, shrine_task, helius_task, watchdog_task, price_task, fill_reconciler_task, live_entry_task, live_exit_task):
+        for running_task in (task, trade_task, shrine_task, helius_task, watchdog_task, price_task, live_price_task, fill_reconciler_task, live_entry_task, live_exit_task):
             if running_task:
                 running_task.cancel()
                 try:
@@ -888,7 +900,14 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "paperPriceFeedErrors": int(FEED_STATE.get("paperPriceFeedErrors", 0)),
                     "paperPriceFeedLastAt": FEED_STATE.get("paperPriceFeedLastAt"),
                     "paperPriceFeedError": FEED_STATE.get("paperPriceFeedError"),
-                    "livePositionMarksUpdated": int(FEED_STATE.get("livePositionMarksUpdated", 0)),
+                    "livePriceFeedStatus": FEED_STATE.get("livePriceFeedStatus"),
+                    "livePriceFeedMints": int(FEED_STATE.get("livePriceFeedMints", 0)),
+                    "livePriceFeedTotalMints": int(FEED_STATE.get("livePriceFeedTotalMints", 0)),
+                    "livePriceFeedUpdated": int(FEED_STATE.get("livePriceFeedUpdated", 0)),
+                    "livePriceFeedNoPair": int(FEED_STATE.get("livePriceFeedNoPair", 0)),
+                    "livePriceFeedErrors": int(FEED_STATE.get("livePriceFeedErrors", 0)),
+                    "livePriceFeedLastAt": FEED_STATE.get("livePriceFeedLastAt"),
+                    "livePriceFeedError": FEED_STATE.get("livePriceFeedError"),
                     "liveFillReconcilerStatus": FEED_STATE.get("liveFillReconcilerStatus"),
                     "liveFillReconcilerLastAt": FEED_STATE.get("liveFillReconcilerLastAt"),
                     "liveFillReconcilerLastSweep": FEED_STATE.get("liveFillReconcilerLastSweep"),

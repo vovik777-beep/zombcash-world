@@ -13,6 +13,8 @@ from sniper_paper_price_feed import (
     select_gecko_pool_mints,
     select_price_feed_mints,
     _save_price_mark,
+    _save_live_price_mark,
+    live_price_mark_worker,
 )
 
 MINT = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
@@ -298,6 +300,38 @@ class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
 
 
 class LivePositionMarkTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_price_mark_updates_only_live_position_rpc(self):
+        calls = []
+        async def supabase_request(method, path, *, payload=None, params=None):
+            calls.append((method, path, payload))
+            self.assertEqual(method, "POST")
+            self.assertEqual(path, "rpc/sniper_live_position_mark")
+            self.assertEqual(payload["p_mint"], MINT)
+            self.assertEqual(payload["p_price_sol"], 0.0002)
+            self.assertTrue(payload["p_observed_at"].startswith("2026-09-09T"))
+            return 2
+        mark = {"mint": MINT, "source": "dexscreener", "priceSol": 0.0002,
+                "liquidityUsd": 1000, "pairAddress": "pair", "observedAt": 1788976012000}
+        updated = await _save_live_price_mark(supabase_request, mark)
+        self.assertEqual(updated, 2)
+        self.assertEqual([call[1] for call in calls], ["rpc/sniper_live_position_mark"])
+
+    async def test_live_price_worker_reads_live_positions_only(self):
+        calls = []
+        async def supabase_request(method, path, *, payload=None, params=None):
+            calls.append((method, path, payload, params))
+            return []
+        state = {}
+        with patch("sniper_paper_price_feed.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError)):
+            with self.assertRaises(asyncio.CancelledError):
+                await live_price_mark_worker(supabase_request, state)
+        self.assertEqual(calls, [
+            ("POST", "rpc/sniper_open_live_position_mints", {}, None),
+        ])
+        self.assertNotIn("rpc/sniper_open_paper_position_mints", [call[1] for call in calls])
+        self.assertEqual(state["livePriceFeedStatus"], "waiting_for_open_positions")
+
+
     async def test_price_mark_persists_to_paper_only_without_live_position_rpc(self):
         calls = []
         async def supabase_request(method, path, *, payload=None, params=None):
