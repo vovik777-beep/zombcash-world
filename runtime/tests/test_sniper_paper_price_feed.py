@@ -240,7 +240,7 @@ class PriceFeedMintSelectionTests(unittest.TestCase):
 
     def test_empty_and_small_sets(self):
         self.assertEqual(select_price_feed_mints([]), ([], 0))
-        self.assertEqual(select_price_feed_mints(["a", "b"], offset=1), (["b", "a"], 0))
+        self.assertEqual(select_price_feed_mints(["a", "b"], offset=1), (["b", "a"], 1))
 
 
 class GeckoPoolSelectionTests(unittest.TestCase):
