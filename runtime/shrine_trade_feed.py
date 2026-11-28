@@ -93,8 +93,10 @@ def select_paper_subscription_mints(rows, offset=0, limit=SHRINE_MAX_ACTIVE_SUBS
     if not mints:
         return [], 0, 0
     start = int(offset or 0) % len(mints)
-    selected = [mints[(start + index) % len(mints)] for index in range(min(max(1, int(limit)), len(mints)))]
-    return selected, (start + len(selected)) % len(mints), len(mints)
+    end = min(start + max(1, int(limit)), len(mints))
+    selected = mints[start:end]
+    next_offset = 0 if end >= len(mints) else end
+    return selected, next_offset, len(mints)
 
 
 async def paper_position_subscription_worker(launch_enabled, paper_mint_queue, supabase_request, feed_state):
