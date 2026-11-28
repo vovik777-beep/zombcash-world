@@ -15,6 +15,18 @@ MINT_RE = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
 SHRINE_MAX_ACTIVE_SUBSCRIPTIONS = 20
 SHRINE_SUBSCRIPTION_TTL_SECONDS = 30
 PAPER_SUBSCRIPTION_REFRESH_SECONDS = 30
+SHRINE_METADATA_MIN_INTERVAL_SECONDS = 2.0
+
+
+def shrine_metadata_retry_delay(retry_after=None):
+    """Return a bounded retry delay for Shrine metadata HTTP 429 responses."""
+    try:
+        delay = float(retry_after)
+    except (TypeError, ValueError):
+        delay = 5.0
+    if not math.isfinite(delay):
+        delay = 5.0
+    return min(30.0, max(1.0, delay))
 
 
 def normalize_shrine_trade(payload, quote_mint=None):
@@ -189,19 +201,34 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
 
                     async def resolve_quote_mint(mint):
                         try:
-                            async with metadata_lock:
-                                wait = 1.05 - (time.monotonic() - last_metadata_request[0])
-                                if wait > 0:
-                                    await asyncio.sleep(wait)
-                                last_metadata_request[0] = time.monotonic()
-                                async with session.get(
-                                    "https://sol.shrine.trade/metadata",
-                                    params={"mint": mint},
-                                    timeout=ClientTimeout(total=10),
-                                ) as response:
-                                    if response.status != 200:
-                                        raise RuntimeError(f"shrine_metadata_http_{response.status}")
-                                    metadata = await response.json()
+                            metadata = None
+                            for attempt in range(2):
+                                retry_delay = None
+                                async with metadata_lock:
+                                    wait = SHRINE_METADATA_MIN_INTERVAL_SECONDS - (time.monotonic() - last_metadata_request[0])
+                                    if wait > 0:
+                                        await asyncio.sleep(wait)
+                                    last_metadata_request[0] = time.monotonic()
+                                    async with session.get(
+                                        "https://sol.shrine.trade/metadata",
+                                        params={"mint": mint},
+                                        timeout=ClientTimeout(total=10),
+                                    ) as response:
+                                        if response.status == 429:
+                                            retry_delay = shrine_metadata_retry_delay(response.headers.get("Retry-After"))
+                                        elif response.status != 200:
+                                            raise RuntimeError(f"shrine_metadata_http_{response.status}")
+                                        else:
+                                            metadata = await response.json()
+                                if retry_delay is None:
+                                    break
+                                if attempt == 0:
+                                    log.info("[Sniper] Shrine metadata rate limited mint=%s retry_in=%ss", mint, retry_delay)
+                                    await asyncio.sleep(retry_delay)
+                                else:
+                                    raise RuntimeError("shrine_metadata_http_429_retries_exhausted")
+                            if not isinstance(metadata, dict):
+                                raise RuntimeError("shrine_metadata_empty_response")
                             quote = str(metadata.get("quote") or (metadata.get("pumpfun") or {}).get("quote_mint") or "").strip()
                             if not quote:
                                 raise RuntimeError("shrine_metadata_quote_missing")
@@ -221,8 +248,7 @@ async def shrine_trade_worker(launch_enabled, mint_queue, supabase_request, feed
                             feed_state["shrineTradeLastQuoteLookupError"] = error_detail
                             feed_state["shrineTradeLastError"] = type(exc).__name__
                             feed_state["shrineTradeLastInvalidReason"] = "metadata_quote_lookup_failed"
-                            pending_trades.pop(mint, None)
-                            log.warning("[Sniper] Shrine quote lookup failed mint=%s error=%s", mint, error_detail)
+                            log.warning("[Sniper] Shrine quote lookup failed mint=%s error=%s pending_preserved=%s", mint, error_detail, len(pending_trades.get(mint, [])))
 
                     async def subscribe_dispatcher():
                         while launch_enabled.is_set() and not ws.closed:
