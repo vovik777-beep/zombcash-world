@@ -8,6 +8,7 @@ from sniper_paper_price_feed import (
     normalize_jupiter_paper_mark,
     normalize_geckoterminal_paper_mark,
     normalize_geckoterminal_pool_mark,
+    normalize_trade_feed_paper_mark,
     paper_price_mark_worker,
     select_gecko_pool_mints,
     _save_price_mark,
@@ -189,6 +190,33 @@ class PaperPriceFeedTests(unittest.TestCase):
             ]
         }
         self.assertIsNone(normalize_geckoterminal_pool_mark(payload, MINT))
+
+    def test_trade_feed_mark_accepts_recent_valid_sol_trade(self):
+        now_ms = 1_800_000_000_000
+        mark = normalize_trade_feed_paper_mark({
+            "mint": MINT, "source": "shrine", "priceSol": "0.000002",
+            "eventAt": now_ms - 10_000, "side": "buy",
+        }, MINT, now_ms=now_ms)
+        self.assertEqual(mark["source"], "trade_feed")
+        self.assertEqual(mark["priceSol"], 0.000002)
+        self.assertEqual(mark["liquidityUsd"], 0)
+        self.assertEqual(mark["pairAddress"], "trade-feed:shrine:buy")
+        self.assertEqual(mark["observedAt"], now_ms - 10_000)
+
+    def test_trade_feed_mark_rejects_stale_invalid_or_untrusted_trade(self):
+        now_ms = 1_800_000_000_000
+        base = {"mint": MINT, "source": "shrine", "priceSol": 0.000002,
+                "eventAt": now_ms - 10_000, "side": "buy"}
+        self.assertIsNone(normalize_trade_feed_paper_mark(
+            {**base, "eventAt": now_ms - 120_001}, MINT, now_ms=now_ms))
+        self.assertIsNone(normalize_trade_feed_paper_mark(
+            {**base, "priceSol": 0}, MINT, now_ms=now_ms))
+        self.assertIsNone(normalize_trade_feed_paper_mark(
+            {**base, "source": "legacy_unattributed"}, MINT, now_ms=now_ms))
+        self.assertIsNone(normalize_trade_feed_paper_mark(
+            {**base, "mint": "OtherMint"}, MINT, now_ms=now_ms))
+        self.assertIsNone(normalize_trade_feed_paper_mark(
+            {**base, "side": "unknown"}, MINT, now_ms=now_ms))
 
     def test_rejects_invalid_mint_or_missing_pair_address(self):
         self.assertIsNone(normalize_dexscreener_paper_mark([], "not-a-mint"))
