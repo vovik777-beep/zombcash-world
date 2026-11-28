@@ -132,8 +132,8 @@ def _topic_for_text(text):
 
 def build_contextual_comment(title, content):
     """Build a restrained, topic-specific comment without paid model calls or link drops."""
-    title = re.sub(r"\\s+", " ", str(title or "")).strip()
-    body = re.sub(r"\\s+", " ", str(content or "")).strip()
+    title = re.sub(r"\s+", " ", str(title or "")).strip()
+    body = re.sub(r"\s+", " ", str(content or "")).strip()
     if len(title) < 8 or len(body) < 40:
         return None
     combined = title + " " + body
@@ -150,8 +150,8 @@ def build_contextual_comment(title, content):
 
 def build_reply_to_comment(post_title, comment_content):
     """Reply to a real person on our own post using only verified project facts."""
-    title = re.sub(r"\\s+", " ", str(post_title or "")).strip()
-    body = re.sub(r"\\s+", " ", str(comment_content or "")).strip()
+    title = re.sub(r"\s+", " ", str(post_title or "")).strip()
+    body = re.sub(r"\s+", " ", str(comment_content or "")).strip()
     if len(body) < 3:
         return None
     text = (title + " " + body).lower()
