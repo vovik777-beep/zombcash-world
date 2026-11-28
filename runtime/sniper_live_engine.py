@@ -203,8 +203,8 @@ async def live_entry_worker(supabase_request, state) -> None:
                     state["liveEntryStatus"] = "active"
                     state["liveEntryLastAt"] = int(time.time() * 1000)
                     state["liveEntryLastSweep"] = result
-                if result["checked"]:
-                    log.info("[Sniper] Live entry sweep checked=%s confirmed=%s failed=%s errors=%s", result["checked"], result["confirmed"], result["failed"], result["errors"])
+                    if result["checked"]:
+                        log.info("[Sniper] Live entry sweep checked=%s confirmed=%s failed=%s errors=%s", result["checked"], result["confirmed"], result["failed"], result["errors"])
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -229,8 +229,8 @@ async def live_exit_worker(supabase_request, state) -> None:
                     state["liveExitStatus"] = "active"
                     state["liveExitLastAt"] = int(time.time() * 1000)
                     state["liveExitLastSweep"] = result
-                if result["triggered"]:
-                    log.info("[Sniper] Live exit sweep checked=%s triggered=%s stale=%s errors=%s", result["checked"], result["triggered"], result["stale"], result["errors"])
+                    if result["triggered"]:
+                        log.info("[Sniper] Live exit sweep checked=%s triggered=%s stale=%s errors=%s", result["checked"], result["triggered"], result["stale"], result["errors"])
         except asyncio.CancelledError:
             raise
         except Exception as exc:
