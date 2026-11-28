@@ -566,6 +566,173 @@ async def live_price_mark_worker(supabase_request, state):
 
                 gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
                 if gecko_mints:
+                    pool_mints, next_offset = select_gecko_pool_mints(
+                        gecko_mints,
+                        state.get("livePriceFeedGeckoOffset", 0),
+                        MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE,
+                    )
+                    state["livePriceFeedGeckoOffset"] = next_offset
+                    state["livePriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
+                    for index, mint in enumerate(pool_mints):
+                        try:
+                            pools = await _fetch_geckoterminal_token_pools(session, mint)
+                            mark = normalize_geckoterminal_pool_mark(pools, mint)
+                            if mark is None:
+                                no_pair += 1
+                                continue
+                            updated += await _save_live_price_mark(supabase_request, mark)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception as exc:
+                            errors += 1
+                            log.warning("[Sniper] Live GeckoTerminal pool fallback failed (%s)", type(exc).__name__)
+                        if index < len(pool_mints) - 1:
+                            await asyncio.sleep(REQUEST_SPACING_SECONDS)
+
+            state["livePriceFeedStatus"] = "active"
+            state["livePriceFeedMints"] = len(mints)
+            state["livePriceFeedUpdated"] = updated
+            state["livePriceFeedNoPair"] = no_pair
+            state["livePriceFeedErrors"] = errors
+            state["livePriceFeedLastAt"] = int(time.time() * 1000)
+            log.info(
+                "[Sniper] Live price refresh complete: checked=%s updated=%s no_pair=%s errors=%s",
+                len(mints), updated, no_pair, errors,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            state["livePriceFeedStatus"] = "error"
+            state["livePriceFeedError"] = type(exc).__name__
+            log.warning("[Sniper] Live price feed cycle failed (%s)", type(exc).__name__)
+        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+
+
+async def paper_price_mark_worker(supabase_request, state):
+    """Refresh price marks for open Paper positions only; never touches Live positions or trades."""
+    timeout = ClientTimeout(total=12, connect=5)
+    while True:
+        try:
+            rows = await supabase_request(
+                "POST",
+                "rpc/sniper_open_paper_position_mints",
+                payload={},
+            )
+            mints = []
+            seen = set()
+            for source_rows in (rows,):
+                if isinstance(source_rows, list):
+                    for row in source_rows:
+                        mint = str(row.get("mint") or "").strip() if isinstance(row, dict) else ""
+                        if MINT_RE.fullmatch(mint) and mint not in seen:
+                            seen.add(mint)
+                            mints.append(mint)
+            if not mints:
+                state["paperPriceFeedStatus"] = "waiting_for_open_positions"
+                state["paperPriceFeedMints"] = 0
+                state["paperPriceFeedTotalMints"] = 0
+                state["paperPriceFeedMintOffset"] = 0
+                await asyncio.sleep(30)
+                continue
+
+            total_mints = len(mints)
+            mints, next_offset = select_price_feed_mints(
+                mints,
+                state.get("paperPriceFeedMintOffset", 0),
+                MAX_MINTS_PER_CYCLE,
+            )
+            state["paperPriceFeedMintOffset"] = next_offset
+            state["paperPriceFeedTotalMints"] = total_mints
+
+            updated = 0
+            no_pair = 0
+            below_liquidity = 0
+            rejected_pool = 0
+            errors = 0
+            dex_covered = set()
+            async with ClientSession(timeout=timeout) as session:
+                # Use DexScreener's multi-token endpoint so every open Paper mint
+                # can be refreshed inside the 90-second database freshness window.
+                try:
+                    pairs_by_mint = await _fetch_token_pairs_batch(session, mints)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    pairs_by_mint = {}
+                    errors += 1
+                    log.warning("[Sniper] DexScreener Paper batch price refresh failed (%s)", type(exc).__name__)
+
+                for mint in mints:
+                    try:
+                        mark = normalize_dexscreener_paper_mark(pairs_by_mint.get(mint, []), mint)
+                        if mark is not None:
+                            saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
+                            if not saved_ok:
+                                errors += 1
+                                log.warning("[Sniper] DexScreener price mark rejected by Supabase validation")
+                            else:
+                                updated += 1
+                                dex_covered.add(mint)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] DexScreener Paper price normalization failed (%s)", type(exc).__name__)
+
+                # Batch fallback for tokens without an eligible DexScreener pair.
+                # Jupiter is preferred; GeckoTerminal is a final keyless batch source.
+                missing_mints = [mint for mint in mints if mint not in dex_covered]
+                jupiter_covered = set()
+                if missing_mints:
+                    try:
+                        prices = await _fetch_jupiter_prices_batched(session, missing_mints)
+                        observed_at_ms = int(time.time() * 1000)
+                        for mint in missing_mints:
+                            mark = normalize_jupiter_paper_mark(prices, mint, observed_at_ms)
+                            if mark is None:
+                                continue
+                            saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
+                            if not saved_ok:
+                                errors += 1
+                                log.warning("[Sniper] Jupiter price mark rejected by Supabase validation")
+                            else:
+                                updated += 1
+                                jupiter_covered.add(mint)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] Jupiter Paper price fallback failed (%s)", type(exc).__name__)
+
+                # Use the actual recent trade tape before spending more public API requests.
+                # This covers active bonding-curve tokens that are not indexed by market aggregators.
+                trade_covered = set()
+                trade_mints = [mint for mint in missing_mints if mint not in jupiter_covered]
+                for mint in trade_mints:
+                    try:
+                        latest_trade = await supabase_request(
+                            "POST",
+                            "rpc/sniper_trade_latest",
+                            payload={"p_mint": mint},
+                        )
+                        mark = normalize_trade_feed_paper_mark(latest_trade, mint)
+                        if mark is None:
+                            continue
+                        saved_ok, live_updated = await _save_price_mark(supabase_request, mark)
+                        if not saved_ok:
+                            errors += 1
+                            log.warning("[Sniper] Trade-feed price mark rejected by Supabase validation")
+                        else:
+                            updated += 1
+                            trade_covered.add(mint)
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as exc:
+                        errors += 1
+                        log.warning("[Sniper] Trade-feed Paper price fallback failed (%s)", type(exc).__name__)
+
+                gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
+                if gecko_mints:
                     now = time.time()
                     retry_after = float(state.get("paperPriceFeedGeckoRetryAfter", 0) or 0)
                     next_gecko_at = float(state.get("paperPriceFeedGeckoNextAt", 0) or 0)
