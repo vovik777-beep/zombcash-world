@@ -138,6 +138,43 @@ class MoltbookEngagementTests(unittest.TestCase):
 
 
 
+    def test_reply_handler_stops_after_one_reply_across_multiple_posts(self):
+        state = {}
+        home = {
+            "activity_on_your_posts": [
+                {"post_id": "post-1", "post_title": "Community links"},
+                {"post_id": "post-2", "post_title": "Zombie Lab"},
+            ]
+        }
+        comments_response = {
+            "comments": [{
+                "id": "comment-1",
+                "author": {"name": "member_one"},
+                "content": "Could you explain this exact feature and how it works for new users?",
+            }]
+        }
+        calls = []
+
+        def fake_api(method, path, payload=None):
+            calls.append((method, path, payload))
+            if method == "GET":
+                return comments_response
+            return {"success": True, "comment": {"id": "reply-1"}}
+
+        with patch.object(agent, "COMMENTING_ENABLED", True), \\
+             patch.object(agent, "MAX_COMMENTS_PER_DAY", 2), \\
+             patch.object(agent, "COMMENT_INTERVAL", 7200), \\
+             patch.object(agent, "api", side_effect=fake_api), \\
+             patch.object(agent, "write_state"), \\
+             patch.object(agent, "notify_telegram_activity"):
+            maybe_reply_to_our_posts(state, home)
+
+        published = [call for call in calls if call[0] == "POST" and "/comments" in call[1]]
+        fetched_posts = [call[1] for call in calls if call[0] == "GET"]
+        self.assertEqual(1, len(published))
+        self.assertEqual(1, len(fetched_posts))
+        self.assertIn("/posts/post-1/comments", fetched_posts[0])
+
     def test_legacy_replied_ids_are_migrated_without_duplicate_reply(self):
         state = {"replied_comment_ids": ["comment-old"]}
         home = {"activity_on_your_posts": [{"post_id": "post-1", "post_title": "Community links"}]}
