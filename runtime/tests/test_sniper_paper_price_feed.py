@@ -322,11 +322,11 @@ class PaperPriceFeedWorkerTests(unittest.IsolatedAsyncioTestCase):
             return {MINT: [pair("paper-batch-pair", MINT, SOL_MINT, 0.0002, 1200)]}
 
         state = {}
-        with patch("sniper_paper_price_feed.ClientSession", return_value=FakeSession()), \\
-             patch("sniper_paper_price_feed._fetch_token_pairs_batch", new=AsyncMock(side_effect=fake_batch_fetch)), \\
-             patch("sniper_paper_price_feed.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError)):
-            with self.assertRaises(asyncio.CancelledError):
-                await paper_price_mark_worker(supabase_request, state)
+        with patch("sniper_paper_price_feed.ClientSession", return_value=FakeSession()):
+            with patch("sniper_paper_price_feed._fetch_token_pairs_batch", new=AsyncMock(side_effect=fake_batch_fetch)):
+                with patch("sniper_paper_price_feed.asyncio.sleep", new=AsyncMock(side_effect=asyncio.CancelledError)):
+                    with self.assertRaises(asyncio.CancelledError):
+                        await paper_price_mark_worker(supabase_request, state)
 
         self.assertIn("rpc/sniper_paper_price_mark_upsert", [call[1] for call in calls])
         self.assertNotIn("rpc/sniper_live_position_mark", [call[1] for call in calls])
