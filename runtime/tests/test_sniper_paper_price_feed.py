@@ -7,6 +7,7 @@ from sniper_paper_price_feed import (
     MAX_MINTS_PER_CYCLE,
     PAPER_POLL_INTERVAL_SECONDS,
     PAPER_GECKO_POOL_BATCH_SIZE,
+    PAPER_GECKO_BATCH_INTERVAL_SECONDS,
     normalize_dexscreener_paper_mark,
     normalize_jupiter_paper_mark,
     normalize_geckoterminal_paper_mark,
@@ -237,6 +238,10 @@ class PaperPriceFeedTests(unittest.TestCase):
             "matching_pool_count": 0,
             "max_liquidity_usd": None,
         })
+
+    def test_gecko_batch_uses_public_multi_token_limit_and_cache_cadence(self):
+        self.assertEqual(PAPER_GECKO_POOL_BATCH_SIZE, 30)
+        self.assertEqual(PAPER_GECKO_BATCH_INTERVAL_SECONDS, 60.0)
 
     def test_geckoterminal_multi_token_response_splits_top_pools_by_mint(self):
         mint_a = "5qErNMKHiYvixh69V1aw8Dazzg6bvUN41ojcozUppump"
