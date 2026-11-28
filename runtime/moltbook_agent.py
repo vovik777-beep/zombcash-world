@@ -624,32 +624,61 @@ def _comment_count_today(state):
     counts = state.setdefault("comment_counts", {})
     return day, counts, int(counts.get(day, 0) or 0)
 
+
+def _comment_interval_remaining(state, now=None):
+    """Return seconds until another public comment is allowed."""
+    now = time.time() if now is None else now
+    last = float(state.get("last_comment_epoch", 0) or 0)
+    return max(0, COMMENT_INTERVAL - max(0, now - last))
+
+
 def _record_comment_action(state, comment_id, text, now=None):
     now = time.time() if now is None else now
     day, counts, count = _comment_count_today(state)
     counts[day] = count + 1
     state["last_comment_epoch"] = now
-    ids = set(str(x) for x in state.get("replied_comment_ids", []))
-    ids.add(str(comment_id))
-    state["replied_comment_ids"] = list(ids)[-500:]
+    handled = set(str(x) for x in state.get("handled_comment_ids", []))
+    handled.update(str(x) for x in state.get("replied_comment_ids", []))
+    handled.add(str(comment_id))
+    state["handled_comment_ids"] = list(handled)[-1000:]
+    # Keep the legacy key during migration so old persistent state remains readable.
+    replied = set(str(x) for x in state.get("replied_comment_ids", []))
+    replied.add(str(comment_id))
+    state["replied_comment_ids"] = list(replied)[-500:]
     recent = list(state.get("recent_comment_texts", []))
     recent.append(text)
     state["recent_comment_texts"] = recent[-100:]
     write_state(state)
 
+
 def maybe_reply_to_our_posts(state, home):
-    """Prioritize real replies to people who have already engaged with ZombieCash."""
+    """Review comments on our posts, with the same safety limits as outbound comments."""
+    if not COMMENTING_ENABLED:
+        log.info("Moltbook reply handling is disabled with commenting.")
+        return state
+    if MAX_COMMENTS_PER_DAY <= 0:
+        return state
+
+    remaining = _comment_interval_remaining(state)
+    if remaining > 0:
+        log.info("Moltbook reply handling waiting for comment cooldown (%ss remaining).", int(remaining))
+        return state
+
     activities = unwrap(home, "activity_on_your_posts")
     if not isinstance(activities, list) or not activities:
         return state
+
     day, counts, count = _comment_count_today(state)
     if count >= MAX_COMMENTS_PER_DAY:
         log.info("Moltbook reply handling deferred: daily comment cap reached (%s).", MAX_COMMENTS_PER_DAY)
         return state
 
-    replied_ids = set(str(x) for x in state.get("replied_comment_ids", []))
+    handled_ids = set(str(x) for x in state.get("handled_comment_ids", []))
+    # Migrate IDs written by the previous version without resetting /data.
+    handled_ids.update(str(x) for x in state.get("replied_comment_ids", []))
     initial_count = count
     handled_posts = 0
+
     for activity in activities:
         if not isinstance(activity, dict):
             continue
@@ -658,6 +687,7 @@ def maybe_reply_to_our_posts(state, home):
             continue
         if count >= MAX_COMMENTS_PER_DAY:
             break
+
         try:
             response = api("GET", f"/posts/{quote(post_id, safe='')}/comments?sort=new&limit=50")
             comments = extract_comments(response)
@@ -667,28 +697,35 @@ def maybe_reply_to_our_posts(state, home):
 
         post_title = str(activity.get("post_title") or activity.get("title") or "ZombieCash discussion")
         deferred = False
+
         for comment in comments:
             if not isinstance(comment, dict):
                 continue
             comment_id = str(comment.get("id") or "").strip()
-            if not comment_id or comment_id in replied_ids:
+            if not comment_id or comment_id in handled_ids:
                 continue
+
             author = comment.get("author") or {}
-            author_name = str(author.get("name") or author.get("username") or "").lower() if isinstance(author, dict) else str(author or "").lower()
-            if not author_name or author_name in OWN_AGENT_NAMES:
+            author_name = (
+                str(author.get("name") or author.get("username") or "").lower()
+                if isinstance(author, dict) else str(author or "").lower()
+            )
+            # Never reply to our own account, unknown authors, or nested reply chains.
+            if not author_name or author_name in OWN_AGENT_NAMES or comment.get("parent_id"):
+                handled_ids.add(comment_id)
                 continue
-            # Reply only to top-level human comments; do not join other agents' reply chains.
-            if comment.get("parent_id"):
-                continue
+
             if count >= MAX_COMMENTS_PER_DAY:
                 deferred = True
                 break
+
             comment_text = str(comment.get("content") or "").strip()
             reply_text = build_reply_to_comment(post_title, comment_text)
             if not reply_text:
-                # We reviewed this comment and decided it does not merit an automated reply.
-                replied_ids.add(comment_id)
+                # Persist deliberate skips so the same praise/noise is not re-evaluated forever.
+                handled_ids.add(comment_id)
                 continue
+
             try:
                 result = api(
                     "POST",
@@ -708,8 +745,9 @@ def maybe_reply_to_our_posts(state, home):
                     log.warning("Moltbook reply response was not confirmed; notification remains unread.")
                     deferred = True
                     break
+
                 _record_comment_action(state, comment_id, reply_text)
-                replied_ids.add(comment_id)
+                handled_ids.add(comment_id)
                 count += 1
                 notify_telegram_activity(
                     "comment",
@@ -719,25 +757,33 @@ def maybe_reply_to_our_posts(state, home):
                     full_text=reply_text,
                 )
                 log.info("Replied to a new comment on our Moltbook post.")
+                # Enforce the global two-hour spacing: at most one public comment per cycle.
+                deferred = True
+                break
             except (requests.RequestException, ValueError, RuntimeError, PermissionError) as exc:
                 log.error("Could not reply to a Moltbook comment; notification remains unread: %s", exc)
                 deferred = True
                 break
 
+        # Persist deliberate skips and successful reply IDs before touching notifications.
+        state["handled_comment_ids"] = list(handled_ids)[-1000:]
+        write_state(state)
+
         if deferred:
             continue
-        # Mark this post's notifications read only after its comment thread was fetched
-        # and all visible top-level comments were either answered or deliberately skipped.
+
+        # Mark read only after the fetched thread has been completely reviewed.
         try:
             api("POST", "/notifications/read-by-post/" + quote(post_id, safe=""))
             handled_posts += 1
         except (requests.RequestException, ValueError, RuntimeError, PermissionError) as exc:
             log.warning("Could not mark reviewed Moltbook notifications as read: %s", exc)
-        write_state(state)
 
     if handled_posts:
-        log.info("Reviewed notifications on %s ZombieCash post(s); replied to %s comment(s).",
-                 handled_posts, count - initial_count)
+        log.info(
+            "Reviewed notifications on %s ZombieCash post(s); replied to %s comment(s).",
+            handled_posts, count - initial_count
+        )
     return state
 
 def maybe_comment(state):
