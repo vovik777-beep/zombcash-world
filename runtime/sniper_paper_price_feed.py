@@ -19,6 +19,7 @@ GECKOTERMINAL_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/s
 GECKOTERMINAL_MULTI_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/multi/{}"
 MAX_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
 PAPER_GECKO_POOL_BATCH_SIZE = 30  # GeckoTerminal multi-token endpoint accepts up to 30 token addresses.
+PAPER_GECKO_BATCH_INTERVAL_SECONDS = 60.0  # GeckoTerminal responses are cached for one minute.
 MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
 MAX_LIVE_MINTS_PER_CYCLE = 60
 DEXSCREENER_TOKEN_BATCH_URL = "https://api.dexscreener.com/tokens/v1/solana/{}"
@@ -565,16 +566,20 @@ async def live_price_mark_worker(supabase_request, state):
 
                 gecko_mints = [mint for mint in trade_mints if mint not in trade_covered]
                 if gecko_mints:
+                    now = time.time()
                     retry_after = float(state.get("paperPriceFeedGeckoRetryAfter", 0) or 0)
-                    if time.time() < retry_after:
+                    next_gecko_at = float(state.get("paperPriceFeedGeckoNextAt", 0) or 0)
+                    blocked_until = max(retry_after, next_gecko_at)
+                    if now < blocked_until:
                         state["paperPriceFeedGeckoDeferred"] = len(gecko_mints)
                         log.info(
-                            "[Sniper] GeckoTerminal Paper pool fallback paused after HTTP 429 retry_in=%ss deferred=%s",
-                            max(0, int(retry_after - time.time())),
+                            "[Sniper] GeckoTerminal Paper pool fallback deferred retry_in=%ss deferred=%s",
+                            max(0, int(blocked_until - now)),
                             len(gecko_mints),
                         )
                     else:
-                        # One request returns top pools for up to 30 tokens, leaving shared API headroom.
+                        # One request returns top pools for up to 30 tokens; one-minute cadence matches API cache.
+                        state["paperPriceFeedGeckoNextAt"] = now + PAPER_GECKO_BATCH_INTERVAL_SECONDS
                         pool_mints, next_offset = select_gecko_pool_mints(
                             gecko_mints,
                             state.get("paperPriceFeedGeckoOffset", 0),
@@ -626,6 +631,7 @@ async def live_price_mark_worker(supabase_request, state):
                                 errors += 1
                                 if is_gecko_rate_limit_error(exc):
                                     state["paperPriceFeedGeckoRetryAfter"] = time.time() + GECKO_RATE_LIMIT_COOLDOWN_SECONDS
+                                    state["paperPriceFeedGeckoNextAt"] = state["paperPriceFeedGeckoRetryAfter"]
                                     log.warning(
                                         "[Sniper] GeckoTerminal HTTP 429; pausing Paper pool fallback for %ss",
                                         GECKO_RATE_LIMIT_COOLDOWN_SECONDS,
