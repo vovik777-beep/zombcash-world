@@ -2480,6 +2480,8 @@ async def _sniper_live_engine_status(*, check_rpc=False):
                 health.get("ready") is True
                 and checks.get("exit_retry") is True
                 and checks.get("exit_attempt_recording") is True
+                and checks.get("entry_buy_count_filter") is True
+                and checks.get("entry_social_filter") is True
             )
     except Exception as exc:
         checks = {"databaseHealthError": type(exc).__name__}
