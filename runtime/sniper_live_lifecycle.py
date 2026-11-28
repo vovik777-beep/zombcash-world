@@ -305,16 +305,22 @@ async def submit_live_order(
         if not math.isfinite(reserve_sol) or not 0 <= reserve_sol <= 1:
             await _transition(supabase_request, order_id, "failed", error_code="invalid_live_reserve_configuration")
             return {"orderId": order_id, "status": "failed", "errorCode": "invalid_live_reserve_configuration"}
-        try:
-            balance_lamports = await balance_checker(str(wallet["publicKey"]))
-            required_lamports = math.ceil((numeric_amount + execution_fee + reserve_sol) * 1_000_000_000)
-            if not isinstance(balance_lamports, int) or isinstance(balance_lamports, bool) or balance_lamports < required_lamports:
-                await _transition(supabase_request, order_id, "failed", error_code="insufficient_wallet_sol_balance")
-                return {"orderId": order_id, "status": "failed", "errorCode": "insufficient_wallet_sol_balance"}
-        except Exception as exc:
-            log.warning("Live wallet balance check failed (%s)", type(exc).__name__)
-            await _transition(supabase_request, order_id, "failed", error_code="solana_balance_lookup_failed")
-            return {"orderId": order_id, "status": "failed", "errorCode": "solana_balance_lookup_failed"}
+        required_sol = numeric_amount + execution_fee + reserve_sol
+    else:
+        # Sells still need native SOL for the network fee and priority fee.
+        # Keep this floor small so a depleted wallet can still close positions.
+        required_sol = execution_fee + 0.0001
+
+    try:
+        balance_lamports = await balance_checker(str(wallet["publicKey"]))
+        required_lamports = math.ceil(required_sol * 1_000_000_000)
+        if not isinstance(balance_lamports, int) or isinstance(balance_lamports, bool) or balance_lamports < required_lamports:
+            await _transition(supabase_request, order_id, "failed", error_code="insufficient_wallet_sol_balance")
+            return {"orderId": order_id, "status": "failed", "errorCode": "insufficient_wallet_sol_balance"}
+    except Exception as exc:
+        log.warning("Live wallet balance check failed (%s)", type(exc).__name__)
+        await _transition(supabase_request, order_id, "failed", error_code="solana_balance_lookup_failed")
+        return {"orderId": order_id, "status": "failed", "errorCode": "solana_balance_lookup_failed"}
 
     secret = await supabase_request(
         "POST",
