@@ -144,6 +144,17 @@ async def _restore_paper_monitoring_opt_in(supabase_request, launch_enabled: asy
 # Use the documented anonymous tier (4 of 5 live subscriptions) until after the
 # account's displayed reset date; then automatically resume the configured free key.
 PUMPDEV_ANONYMOUS_FALLBACK_UNTIL_UTC = 1797724800  # 2026-12-20 00:00 UTC
+PUMPDEV_ANONYMOUS_SUBSCRIPTION_LIMIT = 5
+PUMPDEV_SUBSCRIPTION_IDLE_ROTATE_MS = 10_000
+PUMPDEV_SUBSCRIPTION_MAX_AGE_MS = 60_000
+
+
+def _pumpdev_subscription_should_rotate(started_at_ms: int, last_trade_at_ms: int, now_ms: int) -> bool:
+    """Rotate quiet subscriptions quickly; retain active tokens up to the first-minute limit."""
+    return (
+        now_ms - started_at_ms >= PUMPDEV_SUBSCRIPTION_MAX_AGE_MS
+        or now_ms - last_trade_at_ms >= PUMPDEV_SUBSCRIPTION_IDLE_ROTATE_MS
+    )
 
 
 def _pumpdev_effective_api_key(configured_key: str, now=None) -> str:
@@ -159,14 +170,14 @@ def _pumpdev_effective_api_key(configured_key: str, now=None) -> str:
 def _pumpdev_safe_subscription_limit(api_key_present: bool, status=None, tier=None) -> int:
     """Stay below the effective PumpDev tier even when a configured key is rejected."""
     if not api_key_present:
-        return 4
+        return PUMPDEV_ANONYMOUS_SUBSCRIPTION_LIMIT
     effective_tier = str(tier or "").strip().lower()
     if effective_tier in {"free", "starter", "pro", "whale", "custom"}:
         return 20
     if str(status or "").strip().lower() == "ok" and not effective_tier:
         # PumpDev confirms that the supplied key was applied; remain 5 below its free cap.
         return 20
-    return 4
+    return PUMPDEV_ANONYMOUS_SUBSCRIPTION_LIMIT
 
 
 def _safe_number(value):
@@ -382,15 +393,17 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                     "until 2026-12-20 UTC (4 live trade subscriptions)",
                 )
             try:
-                # Hold each trade subscription for the full first-minute entry window.
-                # A FIFO queue prevents a burst of launches from immediately evicting
-                # the oldest mint before its first trades can arrive.
+                # Hold active tokens while they are producing trades, but rotate
+                # quiet mints after 10 seconds so the anonymous tier can sample more
+                # of the high-volume launch stream. A busy mint stays subscribed up
+                # to the full 60-second Paper entry window.
                 active = {}
+                active_last_trade_at = {}
                 pending = []
                 subscribed_new_tokens = False
                 last_diagnostic_at = 0.0
                 authenticated = not bool(api_key)
-                subscription_limit = 4
+                subscription_limit = PUMPDEV_ANONYMOUS_SUBSCRIPTION_LIMIT
                 async with ClientSession(timeout=ClientTimeout(total=None)) as session:
                     async with session.ws_connect("wss://pumpdev.io/ws", heartbeat=30, receive_timeout=600, max_msg_size=1_000_000) as ws:
                         active_pumpdev_ws = ws
@@ -521,11 +534,18 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     # window as the Paper entry rule; never subscribe to stale backlog.
                                     pending = [(queued_mint, queued_at) for queued_mint, queued_at in pending
                                                if now_ms - queued_at < 60_000]
-                                    expired = [key for key, started_ms in active.items()
-                                               if now_ms - started_ms >= 60_000]
+                                    expired = [
+                                        key for key, started_ms in active.items()
+                                        if _pumpdev_subscription_should_rotate(
+                                            started_ms,
+                                            active_last_trade_at.get(key, started_ms),
+                                            now_ms,
+                                        )
+                                    ]
                                     for old_mint in expired:
                                         await ws.send_json({"method": "unsubscribeTokenTrade", "keys": [old_mint]})
                                         active.pop(old_mint, None)
+                                        active_last_trade_at.pop(old_mint, None)
                                         helius_active_mints.pop(old_mint, None)
                                         helius_mints_changed.set()
                                     max_subs = subscription_limit
@@ -534,6 +554,7 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                         if now_ms - queued_at >= 60_000:
                                             continue
                                         active[next_mint] = now_ms
+                                        active_last_trade_at[next_mint] = now_ms
                                         helius_active_mints[next_mint] = now_ms
                                         helius_mints_changed.set()
                                         await ws.send_json({"method": "subscribeTokenTrade", "keys": [next_mint]})
@@ -541,6 +562,9 @@ def register_sniper_launch_feed(app: web.Application, supabase_request, allowed_
                                     FEED_STATE["pumpdevPendingMints"] = len(pending)
                                     continue
                                 tx_type = str(event.get("txType") or "").lower()
+                                trade_mint = str(event.get("mint") or "").strip()
+                                if tx_type in {"buy", "sell"} and trade_mint in active:
+                                    active_last_trade_at[trade_mint] = int(time.time() * 1000)
                                 tx_counts = FEED_STATE.setdefault("pumpdevTxTypeCounts", {})
                                 tx_counts[tx_type or "missing"] = int(tx_counts.get(tx_type or "missing", 0)) + 1
                                 FEED_STATE["pumpdevLastMarketEvent"] = {
