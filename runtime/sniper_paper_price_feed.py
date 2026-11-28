@@ -17,12 +17,14 @@ JUPITER_PRICE_URL = "https://api.jup.ag/price/v3"
 GECKOTERMINAL_SIMPLE_URL = "https://api.geckoterminal.com/api/v2/simple/networks/solana/token_price/{}"
 GECKOTERMINAL_TOKEN_POOLS_URL = "https://api.geckoterminal.com/api/v2/networks/solana/tokens/{}/pools"
 MAX_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
+PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE = 2  # Two per 30-second cycle keeps the free-tier rate near four/minute.
 MAX_LIVE_GECKO_POOL_LOOKUPS_PER_CYCLE = 4
 MAX_LIVE_MINTS_PER_CYCLE = 60
 DEXSCREENER_TOKEN_BATCH_URL = "https://api.dexscreener.com/tokens/v1/solana/{}"
 MIN_LIQUIDITY_USD = 500.0
 MAX_MINTS_PER_CYCLE = 60  # Covers three Paper profiles with 20 open positions each.
-POLL_INTERVAL_SECONDS = 60.0
+PAPER_POLL_INTERVAL_SECONDS = 30.0
+POLL_INTERVAL_SECONDS = 60.0  # Keep the Live price worker on its existing cadence.
 REQUEST_SPACING_SECONDS = 1.1
 
 
@@ -635,7 +637,7 @@ async def paper_price_mark_worker(supabase_request, state):
                     pool_mints, next_offset = select_gecko_pool_mints(
                         gecko_mints,
                         state.get("paperPriceFeedGeckoOffset", 0),
-                        MAX_GECKO_POOL_LOOKUPS_PER_CYCLE,
+                        PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE,
                     )
                     state["paperPriceFeedGeckoOffset"] = next_offset
                     state["paperPriceFeedGeckoDeferred"] = len(gecko_mints) - len(pool_mints)
@@ -676,4 +678,4 @@ async def paper_price_mark_worker(supabase_request, state):
             state["paperPriceFeedStatus"] = "error"
             state["paperPriceFeedError"] = type(exc).__name__
             log.warning("[Sniper] Paper price feed cycle failed (%s)", type(exc).__name__)
-        await asyncio.sleep(POLL_INTERVAL_SECONDS)
+        await asyncio.sleep(PAPER_POLL_INTERVAL_SECONDS)
