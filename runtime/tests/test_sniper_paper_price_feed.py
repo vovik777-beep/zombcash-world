@@ -6,7 +6,7 @@ from sniper_paper_price_feed import (
     SOL_MINT,
     MAX_MINTS_PER_CYCLE,
     PAPER_POLL_INTERVAL_SECONDS,
-    PAPER_GECKO_POOL_LOOKUPS_PER_CYCLE,
+    PAPER_GECKO_POOL_BATCH_SIZE,
     normalize_dexscreener_paper_mark,
     normalize_jupiter_paper_mark,
     normalize_geckoterminal_paper_mark,
